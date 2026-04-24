@@ -80,7 +80,7 @@
         <div class="page-title">
           <h1>Quotes</h1>
           <!-- Updated text: reference KNIME instead of n8n -->
-          <p class="muted-text">Build a product compliance quote and send it to your KNIME workflow.</p>
+          <p class="muted-text">This sends the quote to the workflow.</p>
         </div>
 
         <div class="page-actions">
@@ -101,7 +101,7 @@
           <button id="addLine" type="button" class="btn-primary">+ Add Line</button>
           <button id="clearLines" type="button">Clear All</button>
           <button id="fillExample" type="button">Fill Example</button>
-          <button id="submitQuote" type="button">Send to KNIME</button>
+          <button id="submitQuote" type="button">Submit Quote</button>
         </div>
       </div>
 
@@ -150,7 +150,7 @@
           <button id="createContactBtn" type="button" class="btn" disabled>+ New Contact</button>
         </div>
 
-        <p class="muted-text mb-0">This sends the quote to your KNIME workflow.</p>
+        <p class="muted-text mb-0">This sends the quote to the workflow.</p>
       </div>
 
       <div class="card">
@@ -199,8 +199,8 @@
       let ACCOUNTS = [];
       let CONTACTS = [];
       // Derive API endpoints from the global configuration
-      const POSTGRES_API = window.APP_CONFIG.POSTGRES_API_BASE;
-      const KNIME_URL = window.APP_CONFIG.KNIME_QUOTE_ENDPOINT;
+      const POSTGRES_API = window.APP_CONFIG.API_BASE;
+      const QUOTE_URL = window.APP_CONFIG.QUOTE_ENDPOINT;
 
       // Fetch pricing, accounts and contacts from your Postgres API.
       Promise.all([
@@ -704,7 +704,7 @@
           const payload = collectQuote();
 
           try {
-            const res = await fetch(KNIME_URL, {
+            const res = await fetch(QUOTE_URL, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload)

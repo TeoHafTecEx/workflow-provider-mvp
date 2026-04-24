@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Home - TGC CRM</title>
+<style>
+:root{
+  --page-bg:#f4f7fb;
+}
+*,
+*::before,
+*::after{ box-sizing:border-box; }
+html,body{
+  margin:0;
+  padding:0;
+  width:100%;
+  overflow-x:hidden;
+}
+body{
+  background:var(--page-bg);
+  font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+}
+#crm-home[data-theme="dark"], #crm-page[data-theme="dark"]{
+  --main:#FFFFFF;
+  --secondary:#0A1826;
+  --accent:#D3A911;
+  --panel:#0f2234;
+  --border:#133147;
+  --muted:#9fb3c8;
+  --head:#0e1d2b;
+  --btnText:#0A1826;
+  --shadow:0 6px 20px rgba(0,0,0,.25);
+}
+#crm-home[data-theme="light"], #crm-page[data-theme="light"]{
+  --main:#0A1826;
+  --secondary:#FFFFFF;
+  --accent:#D3A911;
+  --panel:#ffffff;
+  --border:#e6ecf3;
+  --muted:#5b6b7a;
+  --head:#f6f8fb;
+  --btnText:#0A1826;
+  --shadow:0 6px 18px rgba(10,24,38,.08);
+}
+#crm-home{
+  background:var(--secondary);
+  color:var(--main);
+  width:100%;
+  min-height:100vh;
+  padding:20px 14px 40px;
+}
+.wrapper{
+  width:100%;
+  max-width:1400px;
+  margin:0 auto;
+}
+.brandbar{
+  height:4px;
+  background:linear-gradient(90deg,#fff 0,#fff 33%,#0A1826 33%,#0A1826 66%,#D3A911 66%);
+  border-radius:4px;
+  margin:0 auto 16px;
+  width:100%;
+}
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.spacer{ flex:1; }
+.hint{
+  font-size:12px;
+  color:var(--muted);
+  margin-top:8px;
+}
+button{
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:10px 14px;
+  font-size:14px;
+  background:transparent;
+  color:var(--accent);
+  cursor:pointer;
+  transition:background .15s ease, color .15s ease;
+}
+button:hover{
+  background:var(--accent);
+  color:var(--btnText);
+}
+button.ghost{
+  border:1px solid var(--accent);
+}
+.cards-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+  gap:20px;
+  margin-top:24px;
+}
+.card-link{
+  text-decoration:none;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  background:var(--panel);
+  color:var(--main);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:24px 16px;
+  box-shadow:var(--shadow);
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.card-link:hover{
+  transform:translateY(-3px);
+  box-shadow:0 8px 20px rgba(0,0,0,.2);
+}
+.card-link .icon{
+  font-size:40px;
+  margin-bottom:12px;
+}
+.card-link h3{
+  margin:0 0 8px;
+  font-size:20px;
+}
+.card-link p{
+  margin:0;
+  font-size:14px;
+  color:var(--muted);
+  text-align:center;
+}
+@media (max-width:600px){
+  .cards-grid{
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+  }
+}
+</style>
+</head>
+<body>
+<div id="crm-home" data-theme="light">
+  <div class="wrapper">
+    <div class="brandbar" aria-hidden="true"></div>
+    <div class="row">
+      <h1 style="margin:0;font-size:24px;">TGC CRM Home</h1>
+      <div class="spacer"></div>
+      <button id="themeToggle" class="ghost" type="button">Light / Dark</button>
+    </div>
+    <p class="hint">Welcome! Choose a function below to get started.</p>
+    <div class="cards-grid">
+      <a href="quotes.html" class="card-link">
+        <div class="icon">🧾</div>
+        <h3>Quotes</h3>
+        <p>Create and manage product compliance quotes.</p>
+      </a>
+      <a href="workorders.html" class="card-link">
+        <div class="icon">📋</div>
+        <h3>Work Orders</h3>
+        <p>View and manage work orders.</p>
+      </a>
+      <a href="accounts.html" class="card-link">
+        <div class="icon">🏢</div>
+        <h3>Accounts</h3>
+        <p>Manage customer accounts.</p>
+      </a>
+      <a href="contacts.html" class="card-link">
+        <div class="icon">👥</div>
+        <h3>Contacts</h3>
+        <p>Manage contacts and leads.</p>
+      </a>
+      <a href="services.html" class="card-link">
+        <div class="icon">🛎️</div>
+        <h3>Services</h3>
+        <p>Review available services.</p>
+      </a>
+      <a href="pricing.html" class="card-link">
+        <div class="icon">💰</div>
+        <h3>Pricing</h3>
+        <p>View service pricing.</p>
+      </a>
+      <a href="invoices.html" class="card-link">
+        <div class="icon">📑</div>
+        <h3>Invoices</h3>
+        <p>Track and manage invoices.</p>
+      </a>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  const root = document.getElementById('crm-home');
+  document.getElementById('themeToggle').addEventListener('click', () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  });
+})();
+</script>
+</body>
+</html>

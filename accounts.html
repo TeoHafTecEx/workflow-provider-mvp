@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Accounts – TGC CRM</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Load global configuration for API endpoints -->
+  <script src="config.js"></script>
+</head>
+<body>
+  <div id="crm-page" data-theme="light">
+    <div class="wrapper">
+      <div class="row">
+        <div>
+          <h1>Accounts</h1>
+          <p class="muted-text">Manage customer accounts, search records, and create or update entries.</p>
+        </div>
+        <div class="spacer"></div>
+        <a href="index.html" class="btn">🏠 Home</a>
+        <button id="themeToggle" type="button">Light / Dark</button>
+        <button id="refreshBtn" type="button">Refresh</button>
+        <button id="newAccountBtn" type="button">+ New Account</button>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card">
+          <label>Total Accounts</label>
+          <h2 id="statTotal">0</h2>
+        </div>
+        <div class="card">
+          <label>Active Accounts</label>
+          <h2 id="statActive">0</h2>
+        </div>
+        <div class="card">
+          <label>New This Month</label>
+          <h2 id="statNewMonth">0</h2>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="grid grid-3">
+          <div>
+            <label for="searchInput">Search</label>
+            <input id="searchInput" type="text" placeholder="Search by account name, owner, industry, branch..." />
+          </div>
+
+          <div>
+            <label for="statusFilter">Status</label>
+            <select id="statusFilter">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="draft">Draft</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="sortBy">Sort By</label>
+            <select id="sortBy">
+              <option value="name-asc">Name A → Z</option>
+              <option value="name-desc">Name Z → A</option>
+              <option value="created-desc">Newest created</option>
+              <option value="created-asc">Oldest created</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="clearFiltersBtn" type="button">Clear Filters</button>
+          <button id="exportBtn" type="button">Export CSV</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="dataTable"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="accountModal" class="hidden">
+    <div class="wrapper">
+      <div class="card">
+        <div class="row">
+          <div>
+            <h2 id="modalTitle">New Account</h2>
+            <p class="muted-text" id="modalSubtitle">Create a new account record</p>
+          </div>
+          <div class="spacer"></div>
+          <button id="closeModalBtn" type="button">Close</button>
+        </div>
+
+        <form id="accountForm">
+          <input type="hidden" id="formMode" value="create" />
+          <input type="hidden" id="editRowId" value="" />
+
+          <div class="grid grid-2">
+            <div>
+              <label for="accountName">Account Name</label>
+              <input id="accountName" type="text" required />
+            </div>
+
+            <div>
+              <label for="accountOwner">Account Owner</label>
+              <input id="accountOwner" type="text" />
+            </div>
+
+            <div>
+              <label for="accountIndustry">Industry</label>
+              <input id="accountIndustry" type="text" />
+            </div>
+
+            <div>
+              <label for="accountBranch">Branch</label>
+              <input id="accountBranch" type="text" />
+            </div>
+
+            <div>
+              <label for="paymentTerms">Payment Terms</label>
+              <input id="paymentTerms" type="text" />
+            </div>
+
+            <div>
+              <label for="paymentMethod">Payment Method</label>
+              <input id="paymentMethod" type="text" />
+            </div>
+
+            <div>
+              <label for="frequency">Frequency</label>
+              <input id="frequency" type="text" />
+            </div>
+
+            <div>
+              <label for="countryId">Country ID</label>
+              <input id="countryId" type="text" />
+            </div>
+
+            <div>
+              <label for="contactId">Contact ID</label>
+              <input id="contactId" type="text" />
+            </div>
+
+            <div>
+              <label for="status">Status</label>
+              <select id="status">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+                <option value="Draft">Draft</option>
+              </select>
+            </div>
+
+            <div class="grid-full">
+              <label for="billingAddress">Billing Address</label>
+              <input id="billingAddress" type="text" />
+            </div>
+
+            <div class="grid-full">
+              <label for="bankingDetails">Banking Details</label>
+              <input id="bankingDetails" type="text" />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="deleteBtn" type="button" class="remove-btn hidden">Delete</button>
+            <button id="cancelBtn" type="button">Cancel</button>
+            <button id="saveBtn" type="submit" class="submit-btn">Save Account</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const root = document.getElementById("crm-page");
+      const table = document.getElementById("dataTable");
+
+      const statTotal = document.getElementById("statTotal");
+      const statActive = document.getElementById("statActive");
+      const statNewMonth = document.getElementById("statNewMonth");
+
+      const themeToggle = document.getElementById("themeToggle");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const newAccountBtn = document.getElementById("newAccountBtn");
+      const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+      const exportBtn = document.getElementById("exportBtn");
+
+      const searchInput = document.getElementById("searchInput");
+      const statusFilter = document.getElementById("statusFilter");
+      const sortBy = document.getElementById("sortBy");
+
+      const modal = document.getElementById("accountModal");
+      const modalTitle = document.getElementById("modalTitle");
+      const modalSubtitle = document.getElementById("modalSubtitle");
+      const closeModalBtn = document.getElementById("closeModalBtn");
+      const cancelBtn = document.getElementById("cancelBtn");
+      const deleteBtn = document.getElementById("deleteBtn");
+      const accountForm = document.getElementById("accountForm");
+      const formMode = document.getElementById("formMode");
+      const editRowId = document.getElementById("editRowId");
+
+      // Base URL for accounts derived from the global configuration
+      const API_BASE = window.APP_CONFIG.POSTGRES_API_BASE + "/accounts";
+      let rawRows = [];
+      let filteredRows = [];
+
+      const FIELD_MAP = {
+        id: ["AccountId", "Id", "ID"],
+        name: ["AccountName", "Name"],
+        owner: ["AccountOwner", "Owner"],
+        industry: ["AccountIndustry", "Industry"],
+        branch: ["AccountBranch", "Branch"],
+        statusText: ["AccountStatus", "Status"],
+        statusId: ["AccountStatusId", "StatusId"],
+        accountTypeId: ["AccountTypeId", "TypeId"],
+        contactId: ["ContactId"],
+        countryId: ["CountryId"],
+        billingAddress: ["BillingAddress"],
+        bankingDetails: ["BankingDetails"],
+        frequency: ["Frequency"],
+        firstShipmentDate: ["FirstShipmentDate"],
+        lastShipmentDate: ["LastShipmentDate"],
+        overdueFees: ["OverdueFees"],
+        paymentMethod: ["PaymentMethod"],
+        paymentTerms: ["PaymentTerms"],
+        sumOfANF: ["SumOfANF"],
+        invoiceId: ["InvoiceId"],
+        workOrderId: ["WorkOrderId"],
+        entityRefNo: ["EntityRefNo"],
+        created: ["CreateDateTime", "CreatedDate", "CreatedOn"],
+        updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"],
+        deleted: ["DeletedDateTime"]
+      };
+
+      themeToggle.addEventListener("click", () => {
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+      });
+
+      refreshBtn.addEventListener("click", loadData);
+      newAccountBtn.addEventListener("click", () => openModal("create"));
+      clearFiltersBtn.addEventListener("click", clearFilters);
+      exportBtn.addEventListener("click", exportCsv);
+
+      searchInput.addEventListener("input", applyFiltersAndRender);
+      statusFilter.addEventListener("change", applyFiltersAndRender);
+      sortBy.addEventListener("change", applyFiltersAndRender);
+
+      closeModalBtn.addEventListener("click", closeModal);
+      cancelBtn.addEventListener("click", closeModal);
+      deleteBtn.addEventListener("click", handleDelete);
+      accountForm.addEventListener("submit", handleSave);
+
+      async function loadData() {
+        table.innerHTML = "<thead><tr><th>Loading...</th></tr></thead>";
+
+        try {
+          const res = await fetch(`${API_BASE}?page=1&size=100`);
+          const result = await res.json();
+
+          if (!res.ok || !result.ok) {
+            throw new Error(result.error || "Failed to load accounts");
+          }
+
+          rawRows = (result.rows || []).map(normalizeRow);
+          applyFiltersAndRender();
+        } catch (err) {
+          table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
+          console.error(err);
+        }
+      }
+
+      function normalizeRow(row) {
+        return {
+          raw: row,
+          id: getFirst(row, FIELD_MAP.id),
+          name: getFirst(row, FIELD_MAP.name),
+          owner: getFirst(row, FIELD_MAP.owner),
+          industry: getFirst(row, FIELD_MAP.industry),
+          branch: getFirst(row, FIELD_MAP.branch),
+          statusText: getFirst(row, FIELD_MAP.statusText),
+          statusId: getFirst(row, FIELD_MAP.statusId),
+          status: normalizeStatus(
+            getFirst(row, FIELD_MAP.statusText) || getFirst(row, FIELD_MAP.statusId)
+          ),
+          accountTypeId: getFirst(row, FIELD_MAP.accountTypeId),
+          contactId: getFirst(row, FIELD_MAP.contactId),
+          countryId: getFirst(row, FIELD_MAP.countryId),
+          billingAddress: getFirst(row, FIELD_MAP.billingAddress),
+          bankingDetails: getFirst(row, FIELD_MAP.bankingDetails),
+          frequency: getFirst(row, FIELD_MAP.frequency),
+          firstShipmentDate: getFirst(row, FIELD_MAP.firstShipmentDate),
+          lastShipmentDate: getFirst(row, FIELD_MAP.lastShipmentDate),
+          overdueFees: getFirst(row, FIELD_MAP.overdueFees),
+          paymentMethod: getFirst(row, FIELD_MAP.paymentMethod),
+          paymentTerms: getFirst(row, FIELD_MAP.paymentTerms),
+          sumOfANF: getFirst(row, FIELD_MAP.sumOfANF),
+          invoiceId: getFirst(row, FIELD_MAP.invoiceId),
+          workOrderId: getFirst(row, FIELD_MAP.workOrderId),
+          entityRefNo: getFirst(row, FIELD_MAP.entityRefNo),
+          created: getFirst(row, FIELD_MAP.created),
+          updated: getFirst(row, FIELD_MAP.updated),
+          deleted: getFirst(row, FIELD_MAP.deleted)
+        };
+      }
+
+      function getFirst(obj, keys) {
+        for (const key of keys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+            return obj[key];
+          }
+        }
+        return "";
+      }
+
+      function normalizeStatus(value) {
+        const str = String(value || "").trim().toLowerCase();
+        if (!str) return "Unknown";
+        if (["1", "active", "enabled", "open"].includes(str)) return "Active";
+        if (["0", "inactive", "disabled", "closed"].includes(str)) return "Inactive";
+        if (["draft", "2", "pending"].includes(str)) return "Draft";
+        return toTitleCase(str);
+      }
+
+      function applyFiltersAndRender() {
+        const search = searchInput.value.trim().toLowerCase();
+        const status = statusFilter.value;
+        const sort = sortBy.value;
+
+        filteredRows = rawRows.filter(row => {
+          const haystack = [
+            row.name,
+            row.owner,
+            row.industry,
+            row.branch,
+            row.status,
+            row.statusText,
+            row.accountTypeId,
+            row.contactId,
+            row.countryId,
+            row.billingAddress,
+            row.bankingDetails,
+            row.frequency,
+            row.paymentMethod,
+            row.paymentTerms,
+            row.invoiceId,
+            row.workOrderId,
+            row.entityRefNo
+          ].join(" ").toLowerCase();
+
+          const matchesSearch = !search || haystack.includes(search);
+          const matchesStatus =
+            status === "all"
+              ? true
+              : status === "unknown"
+              ? !row.status || row.status === "Unknown"
+              : row.status.toLowerCase() === status;
+
+          return matchesSearch && matchesStatus;
+        });
+
+        filteredRows.sort((a, b) => {
+          switch (sort) {
+            case "name-desc":
+              return compareText(b.name, a.name);
+            case "created-desc":
+              return compareDate(b.created, a.created);
+            case "created-asc":
+              return compareDate(a.created, b.created);
+            default:
+              return compareText(a.name, b.name);
+          }
+        });
+
+        renderStats(filteredRows);
+        renderTable(filteredRows);
+      }
+
+      function compareText(a, b) {
+        return String(a || "").localeCompare(String(b || ""));
+      }
+
+      function compareDate(a, b) {
+        return parseDateSafe(a) - parseDateSafe(b);
+      }
+
+      function parseDateSafe(value) {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+
+      function renderStats(rows) {
+        statTotal.textContent = rows.length;
+        statActive.textContent = rows.filter(r => r.status === "Active").length;
+
+        const now = new Date();
+        statNewMonth.textContent = rows.filter(r => {
+          const d = new Date(r.created);
+          return !isNaN(d.getTime()) &&
+            d.getMonth() === now.getMonth() &&
+            d.getFullYear() === now.getFullYear();
+        }).length;
+      }
+
+      function renderTable(rows) {
+        if (!rows.length) {
+          table.innerHTML = `
+            <thead>
+              <tr>
+                <th>Account</th>
+                <th>Owner</th>
+                <th>Industry</th>
+                <th>Branch</th>
+                <th>Status</th>
+                <th>Payment Terms</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="9">No accounts match the current filters.</td>
+              </tr>
+            </tbody>
+          `;
+          return;
+        }
+
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th>Owner</th>
+              <th>Industry</th>
+              <th>Branch</th>
+              <th>Status</th>
+              <th>Payment Terms</th>
+              <th>Created</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(row.name || "Unnamed Account")}</strong><br />
+                  <span class="muted-text">ID: ${escapeHtml(row.id || "-")}</span>
+                </td>
+                <td>${escapeHtml(row.owner || "-")}</td>
+                <td>${escapeHtml(row.industry || "-")}</td>
+                <td>${escapeHtml(row.branch || "-")}</td>
+                <td>${escapeHtml(row.status || "Unknown")}</td>
+                <td>${escapeHtml(row.paymentTerms || "-")}</td>
+                <td>${formatDate(row.created)}</td>
+                <td>${formatDate(row.updated)}</td>
+                <td>
+                  <div class="actions">
+                    <button type="button" data-action="edit" data-id="${escapeHtml(row.id)}">Edit</button>
+                    <button type="button" data-action="view" data-id="${escapeHtml(row.id)}">View</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        `;
+
+        table.querySelectorAll("[data-action='edit']").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = rows.find(r => String(r.id) === btn.dataset.id);
+            if (row) openModal("edit", row);
+          });
+        });
+
+        table.querySelectorAll("[data-action='view']").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = rows.find(r => String(r.id) === btn.dataset.id);
+            if (row) openModal("view", row);
+          });
+        });
+      }
+
+      function formatDate(value) {
+        if (!value) return "-";
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return escapeHtml(String(value));
+        return escapeHtml(
+          d.toLocaleDateString("en-ZA", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+          })
+        );
+      }
+
+      function openModal(mode, row = null) {
+        formMode.value = mode;
+        editRowId.value = row?.id || "";
+
+        const isView = mode === "view";
+        const isEdit = mode === "edit";
+
+        modalTitle.textContent =
+          mode === "create" ? "New Account" :
+          mode === "edit" ? "Edit Account" :
+          "View Account";
+
+        modalSubtitle.textContent =
+          mode === "create" ? "Create a new account record" :
+          mode === "edit" ? "Update account details" :
+          "View account information";
+
+        document.getElementById("accountName").value = row?.name || "";
+        document.getElementById("accountOwner").value = row?.owner || "";
+        document.getElementById("accountIndustry").value = row?.industry || "";
+        document.getElementById("accountBranch").value = row?.branch || "";
+        document.getElementById("paymentTerms").value = row?.paymentTerms || "";
+        document.getElementById("paymentMethod").value = row?.paymentMethod || "";
+        document.getElementById("frequency").value = row?.frequency || "";
+        document.getElementById("countryId").value = row?.countryId || "";
+        document.getElementById("contactId").value = row?.contactId || "";
+        document.getElementById("billingAddress").value = row?.billingAddress || "";
+        document.getElementById("bankingDetails").value = row?.bankingDetails || "";
+        document.getElementById("status").value =
+          row?.status && ["Active", "Inactive", "Draft"].includes(row.status) ? row.status : "Active";
+
+        Array.from(accountForm.querySelectorAll("input, select")).forEach(el => {
+          if (el.type !== "hidden") el.disabled = isView;
+        });
+
+        deleteBtn.classList.toggle("hidden", !isEdit);
+        document.getElementById("saveBtn").classList.toggle("hidden", isView);
+
+        modal.classList.remove("hidden");
+      }
+
+      function closeModal() {
+        modal.classList.add("hidden");
+        accountForm.reset();
+        formMode.value = "create";
+        editRowId.value = "";
+        deleteBtn.classList.add("hidden");
+        document.getElementById("saveBtn").classList.remove("hidden");
+      }
+
+      async function handleSave(e) {
+        e.preventDefault();
+
+        const mode = formMode.value;
+        const rowId = editRowId.value;
+
+        const payload = {
+          AccountName: document.getElementById("accountName").value.trim(),
+          AccountOwner: document.getElementById("accountOwner").value.trim(),
+          AccountIndustry: document.getElementById("accountIndustry").value.trim(),
+          AccountBranch: document.getElementById("accountBranch").value.trim(),
+          PaymentTerms: document.getElementById("paymentTerms").value.trim(),
+          PaymentMethod: document.getElementById("paymentMethod").value.trim(),
+          Frequency: document.getElementById("frequency").value.trim(),
+          CountryId: document.getElementById("countryId").value.trim(),
+          ContactId: document.getElementById("contactId").value.trim(),
+          BillingAddress: document.getElementById("billingAddress").value.trim(),
+          BankingDetails: document.getElementById("bankingDetails").value.trim(),
+          AccountStatus: document.getElementById("status").value
+        };
+
+        try {
+          const url = mode === "edit" ? `${API_BASE}/${encodeURIComponent(rowId)}` : API_BASE;
+          const method = mode === "edit" ? "PUT" : "POST";
+
+          const res = await fetch(url, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await res.json().catch(() => ({}));
+
+          if (!res.ok || result.ok === false) {
+            throw new Error(result.error || `Failed to ${mode === "edit" ? "update" : "create"} account`);
+          }
+
+          closeModal();
+          await loadData();
+          alert(mode === "edit" ? "Account updated successfully." : "Account created successfully.");
+        } catch (err) {
+          console.error(err);
+          alert(err.message);
+        }
+      }
+
+      async function handleDelete() {
+        const rowId = editRowId.value;
+        if (!rowId) return;
+
+        if (!confirm("Delete this account?")) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/${encodeURIComponent(rowId)}`, {
+            method: "DELETE"
+          });
+
+          const result = await res.json().catch(() => ({}));
+
+          if (!res.ok || result.ok === false) {
+            throw new Error(result.error || "Failed to delete account");
+          }
+
+          closeModal();
+          await loadData();
+          alert("Account deleted successfully.");
+        } catch (err) {
+          console.error(err);
+          alert(err.message);
+        }
+      }
+
+      function clearFilters() {
+        searchInput.value = "";
+        statusFilter.value = "all";
+        sortBy.value = "name-asc";
+        applyFiltersAndRender();
+      }
+
+      function exportCsv() {
+        const headers = [
+          "ID",
+          "Account Name",
+          "Owner",
+          "Industry",
+          "Branch",
+          "Status",
+          "Payment Terms",
+          "Payment Method",
+          "Country ID",
+          "Contact ID",
+          "Created",
+          "Updated"
+        ];
+
+        const lines = [
+          headers.join(","),
+          ...filteredRows.map(row => [
+            csvValue(row.id),
+            csvValue(row.name),
+            csvValue(row.owner),
+            csvValue(row.industry),
+            csvValue(row.branch),
+            csvValue(row.status),
+            csvValue(row.paymentTerms),
+            csvValue(row.paymentMethod),
+            csvValue(row.countryId),
+            csvValue(row.contactId),
+            csvValue(row.created),
+            csvValue(row.updated)
+          ].join(","))
+        ];
+
+        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "accounts.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function csvValue(value) {
+        return `"${String(value ?? "").replaceAll('"', '""')}"`;
+      }
+
+      function toTitleCase(str) {
+        return str.replace(/\b\w/g, c => c.toUpperCase());
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      loadData();
+    })();
+  </script>
+</body>
+</html>

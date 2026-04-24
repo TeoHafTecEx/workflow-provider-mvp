@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Quotes – TGC CRM</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Page-specific rules only */
+    #quoteTable th:nth-child(6),
+    #quoteTable td:nth-child(6),
+    #quoteTable th:nth-child(7),
+    #quoteTable td:nth-child(7){
+      display:none;
+    }
+
+    .quote-total-card{
+      margin-top:8px;
+    }
+
+    .quote-total-bar{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:14px;
+      border:1px solid var(--border);
+      border-radius:12px;
+      background:var(--head);
+    }
+
+    .quote-total{
+      font-size:20px;
+      font-weight:800;
+    }
+
+    .quote-table th,
+    .quote-table td{
+      text-align:left;
+    }
+
+    .quote-table td.num,
+    .quote-table th.num{
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+      white-space:nowrap;
+    }
+
+    .quote-table td.actions-cell,
+    .quote-table th.actions-cell{
+      text-align:center;
+      white-space:nowrap;
+    }
+
+    .quote-table select,
+    .quote-table input{
+      min-width:140px;
+    }
+
+    .brandbar{
+      height:4px;
+      background:linear-gradient(90deg,#fff 0,#fff 33%,#0A1826 33%,#0A1826 66%,#D3A911 66%);
+      border-radius:4px;
+      margin:0 0 16px;
+      width:100%;
+    }
+
+    .field-note{
+      margin-top:6px;
+      font-size:12px;
+      color:var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div id="quotes-page" data-theme="light">
+    <div class="wrapper">
+      <div class="brandbar" aria-hidden="true"></div>
+
+      <div class="page-header">
+        <div class="page-title">
+          <h1>Quotes</h1>
+          <!-- Updated text: reference KNIME instead of n8n -->
+          <p class="muted-text">Build a product compliance quote and send it to your KNIME workflow.</p>
+        </div>
+
+        <div class="page-actions">
+          <a href="index.html" class="btn">🏠 Home</a>
+          <button id="themeToggle" type="button">Light / Dark</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Quote Actions</h2>
+            <p class="card-subtitle">Add, clear, preview, and submit quote lines.</p>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="addLine" type="button" class="btn-primary">+ Add Line</button>
+          <button id="clearLines" type="button">Clear All</button>
+          <button id="fillExample" type="button">Fill Example</button>
+          <button id="submitQuote" type="button">Send to KNIME</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Client Details</h2>
+            <p class="card-subtitle">Select a company and contact before sending the quote.</p>
+          </div>
+        </div>
+
+        <div class="grid grid-2">
+          <div>
+            <label for="companySelect">Company</label>
+            <select id="companySelect">
+              <option value="">Select company...</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="contactSelect">Contact</label>
+            <select id="contactSelect" disabled>
+              <option value="">Select company first...</option>
+            </select>
+            <div class="field-note" id="contactHint">Choose a company to load its contacts.</div>
+          </div>
+
+          <div>
+            <label for="clientEmail">Client Email</label>
+            <input id="clientEmail" type="email" placeholder="client@example.com" />
+          </div>
+
+          <div>
+            <label for="currency">Currency</label>
+            <select id="currency">
+              <option value="USD" selected>USD</option>
+              <option value="EUR">EUR</option>
+              <option value="GBP">GBP</option>
+              <option value="ZAR">ZAR</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="createCompanyBtn" type="button" class="btn">+ New Company</button>
+          <button id="createContactBtn" type="button" class="btn" disabled>+ New Contact</button>
+        </div>
+
+        <p class="muted-text mb-0">This sends the quote to your KNIME workflow.</p>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">Quote Lines</h2>
+            <p class="card-subtitle">Select a product, region, service, and quantities to calculate totals.</p>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table id="quoteTable" class="quote-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Region</th>
+                <th>Service</th>
+                <th class="num">Number Of Products</th>
+                <th class="num">Number Of Countries</th>
+                <th class="num">Pre-Discount</th>
+                <th class="num">Discount</th>
+                <th class="num">Net</th>
+                <th class="num">Line Total</th>
+                <th class="actions-cell">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="lines"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="quote-total-card">
+        <div class="quote-total-bar">
+          <div class="quote-total">Quote Total: <span id="currencySymbol">$</span> <span id="grand">0.00</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load global configuration for API endpoints -->
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      const root = document.getElementById("quotes-page");
+      let PRICE_TABLE = [];
+      let ACCOUNTS = [];
+      let CONTACTS = [];
+      // Derive API endpoints from the global configuration
+      const POSTGRES_API = window.APP_CONFIG.POSTGRES_API_BASE;
+      const KNIME_URL = window.APP_CONFIG.KNIME_QUOTE_ENDPOINT;
+
+      // Fetch pricing, accounts and contacts from your Postgres API.
+      Promise.all([
+        fetch(`${POSTGRES_API}/pricing?page=1&size=500`).then(res => res.json()).catch(err => {
+          console.error("Failed to load pricing", err);
+          return { rows: [] };
+        }),
+        fetch(`${POSTGRES_API}/accounts?page=1&size=500`).then(res => res.json()).catch(err => {
+          console.error("Failed to load accounts", err);
+          return { rows: [] };
+        }),
+        fetch(`${POSTGRES_API}/contacts?page=1&size=500`).then(res => res.json()).catch(err => {
+          console.error("Failed to load contacts", err);
+          return { rows: [] };
+        })
+      ]).then(([pricingResult, accountsResult, contactsResult]) => {
+        const pricingRows = Array.isArray(pricingResult?.rows) ? pricingResult.rows : [];
+        // Normalize pricing rows into the format used by the quoting calculator
+        PRICE_TABLE = pricingRows.map(row => ({
+          product: row.product_code ?? row.ProductCode,
+          region: row.region_code ?? row.RegionCode,
+          service: row.service_code ?? row.ServiceCode,
+          standardPrice: Number(row.unit_price ?? row.UnitPrice ?? 0),
+          discountPerRange: Number(row.discount_per_tier_per_unit ?? row.DiscountPerTierPerUnit ?? 0),
+          max1: Number(row.tier_1_min_qty ?? row.Tier1MinQty ?? 0),
+          max2: Number(row.tier_2_min_qty ?? row.Tier2MinQty ?? 0),
+          max3: Number(row.tier_3_min_qty ?? row.Tier3MinQty ?? 0),
+          max4: Number(row.tier_4_min_qty ?? row.Tier4MinQty ?? 0),
+          currency: row.currency ?? row.Currency ?? "USD"
+        }));
+        ACCOUNTS = Array.isArray(accountsResult?.rows) ? accountsResult.rows : [];
+        CONTACTS = Array.isArray(contactsResult?.rows) ? contactsResult.rows : [];
+        init();
+      });
+
+      function init() {
+        const tbody = document.getElementById("lines");
+        const grand = document.getElementById("grand");
+        const currencyEl = document.getElementById("currency");
+        const currencySymbol = document.getElementById("currencySymbol");
+        const companySelect = document.getElementById("companySelect");
+        const contactSelect = document.getElementById("contactSelect");
+        const clientEmail = document.getElementById("clientEmail");
+        const submitQuoteBtn = document.getElementById("submitQuote");
+        const contactHint = document.getElementById("contactHint");
+        // Buttons for creating new companies and contacts
+        const createCompanyBtn = document.getElementById("createCompanyBtn");
+        const createContactBtn = document.getElementById("createContactBtn");
+
+        // Enable or disable the new contact button based on company selection
+        function updateCreateContactState() {
+          createContactBtn.disabled = !companySelect.value;
+        }
+        companySelect.addEventListener("change", updateCreateContactState);
+        updateCreateContactState();
+
+        // Handler for creating a new company via the Postgres API
+        createCompanyBtn.addEventListener("click", async () => {
+          const name = prompt("Enter company name:");
+          if (!name) return;
+          try {
+            const payload = { AccountName: name, AccountStatus: "Active" };
+            await fetch(`${POSTGRES_API}/accounts`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            alert("Company created.");
+            // Reload the page to refresh lists
+            window.location.reload();
+          } catch (err) {
+            alert("Failed to create company.");
+          }
+        });
+
+        // Handler for creating a new contact linked to the selected company
+        createContactBtn.addEventListener("click", async () => {
+          const accountId = companySelect.value;
+          if (!accountId) {
+            alert("Please select a company first.");
+            return;
+          }
+          const firstName = prompt("Enter contact first name:");
+          if (!firstName) return;
+          const surname = prompt("Enter contact surname (optional):") || "";
+          const emailVal = prompt("Enter contact email (optional):") || "";
+          try {
+            const payload = {
+              ContactName: firstName,
+              ContactSurname: surname,
+              ContactEmail: emailVal,
+              AccountId: accountId
+            };
+            await fetch(`${POSTGRES_API}/contacts`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+            alert("Contact created.");
+            window.location.reload();
+          } catch (err) {
+            alert("Failed to create contact.");
+          }
+        });
+
+        const fmt = n => Number(n).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        });
+
+        const uniq = arr => [...new Set(arr)].sort();
+        const allProducts = uniq(PRICE_TABLE.map(r => r.product));
+
+        function clean(value) {
+          return value === null || value === undefined ? "" : String(value).trim();
+        }
+
+        function getCurrencySymbol(code) {
+          switch (code) {
+            case "EUR": return "€";
+            case "GBP": return "£";
+            case "ZAR": return "R";
+            case "USD":
+            default:
+              return "$";
+          }
+        }
+
+        function updateCurrencySymbol() {
+          currencySymbol.textContent = getCurrencySymbol(currencyEl.value);
+        }
+
+        function normalizeAccount(row) {
+          return {
+            id: clean(row.AccountId || row.Id || row.ID),
+            name: clean(row.AccountName || row.Name),
+            owner: clean(row.AccountOwner),
+            status: clean(row.AccountStatus || row.AccountStatusId)
+          };
+        }
+
+        function normalizeContact(row) {
+          const firstName = clean(row.ContactName);
+          const surname = clean(row.ContactSurname);
+          const fullName = [firstName, surname].filter(Boolean).join(" ").trim();
+
+          return {
+            id: clean(row.ContactId || row.Id || row.ID),
+            accountId: clean(row.AccountId),
+            accountName: clean(row.ContactCompany),
+            firstName,
+            surname,
+            name: fullName || firstName || surname || clean(row.Name) || "Unnamed Contact",
+            email: clean(row.ContactEmail || row.Email || row.EmailAddress),
+            phone: clean(row.ContactPhone || row.Phone || row.TelephoneNumber),
+            jobTitle: clean(row.ContactJobTitle),
+            role: clean(row.ContactRole)
+          };
+        }
+
+        const normalizedAccounts = ACCOUNTS
+          .map(normalizeAccount)
+          .filter(a => a.id || a.name)
+          .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+
+        const normalizedContacts = CONTACTS
+          .map(normalizeContact)
+          .filter(c => c.id || c.name);
+
+        function populateCompanyOptions() {
+          companySelect.innerHTML =
+            `<option value="">Select company...</option>` +
+            normalizedAccounts.map(account => `
+              <option value="${escapeHtml(account.id)}">${escapeHtml(account.name || `Account ${account.id}`)}</option>
+            `).join("");
+        }
+
+        function getContactsForCompany(accountId) {
+          return normalizedContacts
+            .filter(contact => String(contact.accountId) === String(accountId))
+            .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
+        }
+
+        function populateContactOptions(accountId) {
+          const contacts = getContactsForCompany(accountId);
+
+          if (!accountId) {
+            contactSelect.disabled = true;
+            contactSelect.innerHTML = `<option value="">Select company first...</option>`;
+            contactHint.textContent = "Choose a company to load its contacts.";
+            return;
+          }
+
+          if (!contacts.length) {
+            contactSelect.disabled = true;
+            contactSelect.innerHTML = `<option value="">No contacts available...</option>`;
+            contactHint.textContent = "No contacts were found for the selected company.";
+            return;
+          }
+
+          contactSelect.disabled = false;
+          contactSelect.innerHTML =
+            `<option value="">Select contact...</option>` +
+            contacts.map(contact => `
+              <option value="${escapeHtml(contact.id)}">${escapeHtml(contact.name)}${contact.email ? ` — ${escapeHtml(contact.email)}` : ""}</option>
+            `).join("");
+          contactHint.textContent = "Select the individual who should receive the invoice.";
+        }
+
+        function getSelectedCompany() {
+          return normalizedAccounts.find(account => String(account.id) === String(companySelect.value)) || null;
+        }
+
+        function getSelectedContact() {
+          return normalizedContacts.find(contact => String(contact.id) === String(contactSelect.value)) || null;
+        }
+
+        function updateSendState() {
+          const hasCompany = !!companySelect.value;
+          const hasContact = !!contactSelect.value;
+          submitQuoteBtn.disabled = !(hasCompany && hasContact);
+        }
+
+        function optionsForRegion(product) {
+          return uniq(
+            PRICE_TABLE
+              .filter(r => !product || r.product === product)
+              .map(r => r.region)
+          );
+        }
+
+        function optionsForService(product, region) {
+          return uniq(
+            PRICE_TABLE
+              .filter(r => (!product || r.product === product) && (!region || r.region === region))
+              .map(r => r.service)
+          );
+        }
+
+        function findRow(product, region, service) {
+          return PRICE_TABLE.find(
+            x => x.product === product && x.region === region && x.service === service
+          ) || null;
+        }
+
+        function tierCount(q, row) {
+          return (q >= row.max4) ? 4 :
+                 (q >= row.max3) ? 3 :
+                 (q >= row.max2) ? 2 :
+                 (q >= row.max1) ? 1 : 0;
+        }
+
+        function computeLine(line) {
+          const q = Number(line.productQty);
+          const c = Number(line.countryQty);
+
+          if (!line.product || !line.region || !line.service || isNaN(q) || isNaN(c) || q < 0 || c < 0) {
+            return { valid: false, pre: 0, disc: 0, net: 0, total: 0 };
+          }
+
+          const row = findRow(line.product, line.region, line.service);
+          if (!row) {
+            return { valid: false, pre: 0, disc: 0, net: 0, total: 0 };
+          }
+
+          const t = tierCount(q, row);
+          const pre = row.standardPrice * q;
+          const disc = -q * row.discountPerRange * t;
+          const net = pre + disc;
+          const total = net * c;
+
+          return {
+            valid: true,
+            pre,
+            disc,
+            net,
+            total
+          };
+        }
+
+        function makeSelect(options, value, placeholder = "Select...") {
+          const s = document.createElement("select");
+          populateSelect(s, options, value, placeholder);
+          return s;
+        }
+
+        function populateSelect(selectEl, options, value = "", placeholder = "Select...") {
+          const current = value || "";
+          selectEl.innerHTML =
+            `<option value="">${placeholder}</option>` +
+            options.map(o => `<option value="${o}">${o}</option>`).join("");
+
+          if (current && options.includes(current)) {
+            selectEl.value = current;
+          } else {
+            selectEl.value = "";
+          }
+        }
+
+        function makeInt(value) {
+          const i = document.createElement("input");
+          i.type = "number";
+          i.min = "0";
+          i.step = "1";
+          i.value = value ?? "";
+          return i;
+        }
+
+        function syncDropdowns(selP, selR, selS, defaults = {}) {
+          const selectedProduct = selP.value;
+          const regionOptions = optionsForRegion(selectedProduct);
+          const keepRegion = regionOptions.includes(selR.value) ? selR.value : (defaults.region || "");
+          populateSelect(selR, regionOptions, keepRegion, "Select region...");
+
+          const selectedRegion = selR.value;
+          const serviceOptions = optionsForService(selectedProduct, selectedRegion);
+          const keepService = serviceOptions.includes(selS.value) ? selS.value : (defaults.service || "");
+          populateSelect(selS, serviceOptions, keepService, "Select service...");
+        }
+
+        function renderEmptyState() {
+          if (tbody.children.length > 0) return;
+
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="10">
+                <div class="empty-state">No quote lines yet. Add a line to begin.</div>
+              </td>
+            </tr>
+          `;
+        }
+
+        function clearEmptyState() {
+          const onlyRow = tbody.querySelector("tr");
+          const empty = tbody.querySelector(".empty-state");
+          if (onlyRow && empty) {
+            tbody.innerHTML = "";
+          }
+        }
+
+        function addLine(defaults = {}) {
+          clearEmptyState();
+
+          const tr = document.createElement("tr");
+
+          const tdP = document.createElement("td");
+          const tdR = document.createElement("td");
+          const tdS = document.createElement("td");
+          const tdPQ = document.createElement("td");
+          const tdCQ = document.createElement("td");
+          const tdPre = document.createElement("td");
+          const tdDis = document.createElement("td");
+          const tdNet = document.createElement("td");
+          const tdTot = document.createElement("td");
+          const tdAct = document.createElement("td");
+
+          const selP = makeSelect(allProducts, defaults.product, "Select product...");
+          const selR = makeSelect([], "", "Select region...");
+          const selS = makeSelect([], "", "Select service...");
+          const inpPQ = makeInt(defaults.productQty ?? "");
+          const inpCQ = makeInt(defaults.countryQty ?? "");
+
+          tdPre.className = "num";
+          tdDis.className = "num";
+          tdNet.className = "num";
+          tdTot.className = "num";
+          tdAct.className = "actions-cell";
+
+          const actionsWrap = document.createElement("div");
+          actionsWrap.className = "row-actions";
+
+          const rm = document.createElement("button");
+          rm.textContent = "Remove";
+          rm.type = "button";
+
+          rm.onclick = () => {
+            tr.remove();
+            renderGrand();
+            renderEmptyState();
+          };
+
+          actionsWrap.appendChild(rm);
+          tdAct.appendChild(actionsWrap);
+
+          function read() {
+            return {
+              product: selP.value,
+              region: selR.value,
+              service: selS.value,
+              productQty: inpPQ.value,
+              countryQty: inpCQ.value
+            };
+          }
+
+          function render() {
+            const r = computeLine(read());
+            tdPre.textContent = fmt(r.pre);
+            tdDis.textContent = fmt(r.disc);
+            tdNet.textContent = fmt(r.net);
+            tdTot.textContent = fmt(r.total);
+            renderGrand();
+          }
+
+          selP.addEventListener("change", () => {
+            syncDropdowns(selP, selR, selS);
+            render();
+          });
+
+          selR.addEventListener("change", () => {
+            syncDropdowns(selP, selR, selS);
+            render();
+          });
+
+          selS.addEventListener("change", render);
+          inpPQ.addEventListener("input", render);
+          inpCQ.addEventListener("input", render);
+
+          tdP.appendChild(selP);
+          tdR.appendChild(selR);
+          tdS.appendChild(selS);
+          tdPQ.appendChild(inpPQ);
+          tdCQ.appendChild(inpCQ);
+
+          tr.append(tdP, tdR, tdS, tdPQ, tdCQ, tdPre, tdDis, tdNet, tdTot, tdAct);
+          tbody.appendChild(tr);
+
+          syncDropdowns(selP, selR, selS, defaults);
+          if (defaults.product) selP.value = defaults.product;
+          syncDropdowns(selP, selR, selS, defaults);
+          if (defaults.region) selR.value = defaults.region;
+          syncDropdowns(selP, selR, selS, defaults);
+          if (defaults.service) selS.value = defaults.service;
+
+          render();
+        }
+
+        function renderGrand() {
+          let total = 0;
+
+          tbody.querySelectorAll("tr").forEach(tr => {
+            if (tr.querySelector(".empty-state")) return;
+
+            const [selP, selR, selS, inpPQ, inpCQ] = tr.querySelectorAll("select, input");
+            const res = computeLine({
+              product: selP.value,
+              region: selR.value,
+              service: selS.value,
+              productQty: inpPQ.value,
+              countryQty: inpCQ.value
+            });
+
+            if (res.valid) total += res.total;
+          });
+
+          grand.textContent = fmt(total);
+        }
+
+        function collectQuote() {
+          const selectedCompany = getSelectedCompany();
+          const selectedContact = getSelectedContact();
+          const lines = [];
+
+          tbody.querySelectorAll("tr").forEach(tr => {
+            if (tr.querySelector(".empty-state")) return;
+
+            const [selP, selR, selS, inpPQ, inpCQ] = tr.querySelectorAll("select, input");
+
+            lines.push({
+              ProductCode: selP?.value || "",
+              RegionCode: selR?.value || "",
+              ServiceCode: selS?.value || "",
+              ProductQty: Number(inpPQ?.value || 0),
+              CountryQty: Number(inpCQ?.value || 0)
+            });
+          });
+
+          return {
+            request: {
+              AccountId: selectedCompany?.id || "",
+              AccountName: selectedCompany?.name || "",
+              ContactId: selectedContact?.id || "",
+              ContactName: selectedContact?.name || "",
+              ContactEmail: clientEmail.value.trim() || selectedContact?.email || "",
+              Currency: currencyEl.value || "USD"
+            },
+            lines
+          };
+        }
+
+        async function saveQuote() {
+          if (!companySelect.value) {
+            alert("Please select a company before submitting the quote.");
+            return;
+          }
+
+          if (!contactSelect.value) {
+            alert("Please select a contact for the selected company before submitting the quote.");
+            return;
+          }
+
+          const payload = collectQuote();
+
+          try {
+            const res = await fetch(KNIME_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+              const msg = await res.text().catch(() => "");
+              throw new Error(msg || "Webhook request failed");
+            }
+
+            alert("Quote sent successfully.");
+          } catch (err) {
+            alert("Quote submission failed. Check your KNIME endpoint and CORS settings.");
+            console.error(err);
+          }
+
+          return payload;
+        }
+
+        companySelect.addEventListener("change", () => {
+          populateContactOptions(companySelect.value);
+          contactSelect.value = "";
+          clientEmail.value = "";
+          updateSendState();
+        });
+
+        contactSelect.addEventListener("change", () => {
+          const selectedContact = getSelectedContact();
+          clientEmail.value = selectedContact?.email || "";
+          updateSendState();
+        });
+
+        document.getElementById("addLine").onclick = () => addLine();
+
+        document.getElementById("clearLines").onclick = () => {
+          tbody.innerHTML = "";
+          addLine();
+          renderGrand();
+        };
+
+        document.getElementById("fillExample").onclick = () => {
+          addLine({
+            product: "Cosmetics",
+            region: "EU & UK",
+            service: "Expedited Audit",
+            productQty: 17,
+            countryQty: 2
+          });
+        };
+
+        document.getElementById("submitQuote").onclick = () => {
+          saveQuote();
+        };
+
+        document.getElementById("themeToggle").onclick = () => {
+          root.dataset.theme = (root.dataset.theme === "dark" ? "light" : "dark");
+        };
+
+        currencyEl.addEventListener("change", updateCurrencySymbol);
+
+        populateCompanyOptions();
+        populateContactOptions("");
+        updateCurrencySymbol();
+        updateSendState();
+        addLine();
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+    })();
+  </script>
+</body>
+</html>

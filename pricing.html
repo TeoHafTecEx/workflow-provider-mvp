@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pricing – TGC CRM</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .pricing-table {
+      min-width: 1450px;
+    }
+
+    .pricing-table th,
+    .pricing-table td {
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      vertical-align: top;
+    }
+
+    .pricing-name {
+      font-weight: 800;
+      color: var(--main);
+    }
+
+    .pricing-sub {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
+    .detail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .detail-item {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      background: var(--surface-2, var(--panel));
+    }
+
+    .detail-item.full {
+      grid-column: 1 / -1;
+    }
+
+    .detail-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .detail-value {
+      font-size: 14px;
+      color: var(--main);
+      word-break: break-word;
+    }
+
+    .tier-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .tier-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2, var(--panel));
+    }
+
+    .tier-row span:last-child {
+      font-weight: 700;
+    }
+
+    .table-note {
+      margin-top: 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    @media (max-width: 900px) {
+      .detail-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="crm-page" data-theme="light">
+    <div class="wrapper">
+      <div class="row">
+        <div>
+          <h1>Pricing</h1>
+          <p class="muted-text">Browse pricing, discount thresholds, service combinations, and currency-based pricing rules.</p>
+        </div>
+        <div class="spacer"></div>
+        <a href="index.html" class="btn">🏠 Home</a>
+        <button id="themeToggle" type="button">Light / Dark</button>
+        <button id="refreshBtn" type="button">Refresh</button>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card">
+          <label>Total Pricing Rows</label>
+          <h2 id="statTotal">0</h2>
+        </div>
+        <div class="card">
+          <label>Active Pricing</label>
+          <h2 id="statActive">0</h2>
+        </div>
+        <div class="card">
+          <label>Unique Products</label>
+          <h2 id="statProducts">0</h2>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="grid grid-3">
+          <div>
+            <label for="searchInput">Search</label>
+            <input id="searchInput" type="text" placeholder="Search by product, region, service, currency..." />
+          </div>
+
+          <div>
+            <label for="statusFilter">Status</label>
+            <select id="statusFilter">
+              <option value="all">All pricing</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="sortBy">Sort By</label>
+            <select id="sortBy">
+              <option value="product-asc">Product A → Z</option>
+              <option value="product-desc">Product Z → A</option>
+              <option value="price-desc">Highest unit price</option>
+              <option value="price-asc">Lowest unit price</option>
+              <option value="created-desc">Newest created</option>
+              <option value="created-asc">Oldest created</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-3 mt-4">
+          <div>
+            <label for="productFilter">Product</label>
+            <select id="productFilter">
+              <option value="all">All products</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="regionFilter">Region</label>
+            <select id="regionFilter">
+              <option value="all">All regions</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="currencyFilter">Currency</label>
+            <select id="currencyFilter">
+              <option value="all">All currencies</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="clearFiltersBtn" type="button">Clear Filters</button>
+          <button id="exportBtn" type="button">Export CSV</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="dataTable" class="pricing-table"></table>
+        </div>
+        <div id="tableNote" class="table-note"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pricingModal" class="hidden">
+    <div class="wrapper">
+      <div class="card">
+        <div class="row">
+          <div>
+            <h2 id="modalTitle">Pricing Details</h2>
+            <p class="muted-text" id="modalSubtitle">View pricing configuration</p>
+          </div>
+          <div class="spacer"></div>
+          <button id="closeModalBtn" type="button">Close</button>
+        </div>
+
+        <div class="detail-grid mt-4">
+          <div class="detail-item">
+            <div class="detail-label">Product</div>
+            <div class="detail-value" id="detailProduct">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Service</div>
+            <div class="detail-value" id="detailService">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Region</div>
+            <div class="detail-value" id="detailRegion">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Currency</div>
+            <div class="detail-value" id="detailCurrency">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Unit Price</div>
+            <div class="detail-value" id="detailUnitPrice">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Discount Per Tier Per Unit</div>
+            <div class="detail-value" id="detailDiscount">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Priority</div>
+            <div class="detail-value" id="detailPriority">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Status</div>
+            <div class="detail-value" id="detailStatus">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Account ID</div>
+            <div class="detail-value" id="detailAccountId">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Pricing ID</div>
+            <div class="detail-value" id="detailPricingId">-</div>
+          </div>
+
+          <div class="detail-item full">
+            <div class="detail-label">Tier Thresholds</div>
+            <div class="detail-value">
+              <div class="tier-list" id="detailTiers"></div>
+            </div>
+          </div>
+
+          <div class="detail-item full">
+            <div class="detail-label">Notes</div>
+            <div class="detail-value" id="detailNotes">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Created</div>
+            <div class="detail-value" id="detailCreated">-</div>
+          </div>
+
+          <div class="detail-item">
+            <div class="detail-label">Updated</div>
+            <div class="detail-value" id="detailUpdated">-</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="modalCloseBtn" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load global configuration for API endpoints -->
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      const root = document.getElementById("crm-page");
+      const table = document.getElementById("dataTable");
+      const tableNote = document.getElementById("tableNote");
+
+      const statTotal = document.getElementById("statTotal");
+      const statActive = document.getElementById("statActive");
+      const statProducts = document.getElementById("statProducts");
+
+      const themeToggle = document.getElementById("themeToggle");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+      const exportBtn = document.getElementById("exportBtn");
+
+      const searchInput = document.getElementById("searchInput");
+      const statusFilter = document.getElementById("statusFilter");
+      const sortBy = document.getElementById("sortBy");
+      const productFilter = document.getElementById("productFilter");
+      const regionFilter = document.getElementById("regionFilter");
+      const currencyFilter = document.getElementById("currencyFilter");
+
+      const modal = document.getElementById("pricingModal");
+      const modalTitle = document.getElementById("modalTitle");
+      const modalSubtitle = document.getElementById("modalSubtitle");
+      const closeModalBtn = document.getElementById("closeModalBtn");
+      const modalCloseBtn = document.getElementById("modalCloseBtn");
+
+      // Base URL for pricing derived from the global configuration
+      const API_BASE = window.APP_CONFIG.POSTGRES_API_BASE + "/pricing";
+
+      let rawRows = [];
+      let filteredRows = [];
+
+      const FIELD_MAP = {
+        accountId: ["AccountId"],
+        createdBy: ["CreateByUserRefNo"],
+        created: ["CreateDateTime", "CreatedDate", "CreatedOn"],
+        currency: ["Currency"],
+        deletedBy: ["DeletedByUserRefNo"],
+        deleted: ["DeletedDateTime"],
+        discountPerTierPerUnit: ["DiscountPerTierPerUnit"],
+        entityRefNo: ["EntityRefNo"],
+        isActive: ["IsActive"],
+        modifiedBy: ["ModifiedByUserRefNo"],
+        updated: ["ModifiedDateTime", "UpdateDateTime", "UpdatedOn"],
+        notes: ["Notes"],
+        pricingId: ["PricingId", "Id", "ID"],
+        priority: ["Priority"],
+        productCode: ["ProductCode"],
+        regionCode: ["RegionCode"],
+        serviceCode: ["ServiceCode"],
+        tier1MinQty: ["Tier1MinQty"],
+        tier2MinQty: ["Tier2MinQty"],
+        tier3MinQty: ["Tier3MinQty"],
+        tier4MinQty: ["Tier4MinQty"],
+        unitPrice: ["UnitPrice"]
+      };
+
+      themeToggle.addEventListener("click", () => {
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+      });
+
+      refreshBtn.addEventListener("click", loadData);
+      clearFiltersBtn.addEventListener("click", clearFilters);
+      exportBtn.addEventListener("click", exportCsv);
+
+      searchInput.addEventListener("input", applyFiltersAndRender);
+      statusFilter.addEventListener("change", applyFiltersAndRender);
+      sortBy.addEventListener("change", applyFiltersAndRender);
+      productFilter.addEventListener("change", applyFiltersAndRender);
+      regionFilter.addEventListener("change", applyFiltersAndRender);
+      currencyFilter.addEventListener("change", applyFiltersAndRender);
+
+      closeModalBtn.addEventListener("click", closeModal);
+      modalCloseBtn.addEventListener("click", closeModal);
+
+      modal.addEventListener("click", (e) => {
+        if (e.target === modal) closeModal();
+      });
+
+      async function loadData() {
+        table.innerHTML = "<thead><tr><th>Loading...</th></tr></thead>";
+        tableNote.textContent = "";
+
+        try {
+          const res = await fetch(`${API_BASE}?page=1&size=500`);
+          const result = await res.json();
+
+          if (!res.ok || !result.ok) {
+            throw new Error(result.error || "Failed to load pricing");
+          }
+
+          rawRows = (result.rows || []).map(normalizeRow);
+          populateFilterOptions(rawRows);
+          applyFiltersAndRender();
+        } catch (err) {
+          table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
+          console.error(err);
+        }
+      }
+
+      function normalizeRow(row) {
+        const productCode = getFirst(row, FIELD_MAP.productCode);
+        const regionCode = getFirst(row, FIELD_MAP.regionCode);
+        const serviceCode = getFirst(row, FIELD_MAP.serviceCode);
+        const currency = getFirst(row, FIELD_MAP.currency);
+        const unitPrice = getFirst(row, FIELD_MAP.unitPrice);
+        const discountPerTierPerUnit = getFirst(row, FIELD_MAP.discountPerTierPerUnit);
+        const isActiveRaw = getFirst(row, FIELD_MAP.isActive);
+
+        return {
+          raw: row,
+          pricingId: getFirst(row, FIELD_MAP.pricingId),
+          accountId: getFirst(row, FIELD_MAP.accountId),
+          productCode,
+          regionCode,
+          serviceCode,
+          currency,
+          unitPrice,
+          discountPerTierPerUnit,
+          tier1MinQty: getFirst(row, FIELD_MAP.tier1MinQty),
+          tier2MinQty: getFirst(row, FIELD_MAP.tier2MinQty),
+          tier3MinQty: getFirst(row, FIELD_MAP.tier3MinQty),
+          tier4MinQty: getFirst(row, FIELD_MAP.tier4MinQty),
+          priority: getFirst(row, FIELD_MAP.priority),
+          notes: getFirst(row, FIELD_MAP.notes),
+          entityRefNo: getFirst(row, FIELD_MAP.entityRefNo),
+          isActiveRaw,
+          isActive: normalizeActive(isActiveRaw),
+          createdBy: getFirst(row, FIELD_MAP.createdBy),
+          created: getFirst(row, FIELD_MAP.created),
+          modifiedBy: getFirst(row, FIELD_MAP.modifiedBy),
+          updated: getFirst(row, FIELD_MAP.updated),
+          deletedBy: getFirst(row, FIELD_MAP.deletedBy),
+          deleted: getFirst(row, FIELD_MAP.deleted)
+        };
+      }
+
+      function getFirst(obj, keys) {
+        for (const key of keys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+            return obj[key];
+          }
+        }
+        return "";
+      }
+
+      function normalizeActive(value) {
+        const str = String(value || "").trim().toLowerCase();
+        if (["1", "true", "yes", "active"].includes(str)) return "Active";
+        if (["0", "false", "no", "inactive"].includes(str)) return "Inactive";
+        return "Inactive";
+      }
+
+      function populateFilterOptions(rows) {
+        fillSelect(productFilter, "All products", uniqueValues(rows.map(r => r.productCode)));
+        fillSelect(regionFilter, "All regions", uniqueValues(rows.map(r => r.regionCode)));
+        fillSelect(currencyFilter, "All currencies", uniqueValues(rows.map(r => r.currency)));
+      }
+
+      function fillSelect(select, allLabel, values) {
+        const current = select.value || "all";
+        select.innerHTML =
+          `<option value="all">${allLabel}</option>` +
+          values.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+
+        if (values.includes(current)) {
+          select.value = current;
+        } else {
+          select.value = "all";
+        }
+      }
+
+      function uniqueValues(values) {
+        return [...new Set(values.filter(Boolean).map(String))].sort((a, b) => a.localeCompare(b));
+      }
+
+      function applyFiltersAndRender() {
+        const search = searchInput.value.trim().toLowerCase();
+        const status = statusFilter.value;
+        const sort = sortBy.value;
+        const product = productFilter.value;
+        const region = regionFilter.value;
+        const currency = currencyFilter.value;
+
+        filteredRows = rawRows.filter(row => {
+          const haystack = [
+            row.pricingId,
+            row.accountId,
+            row.productCode,
+            row.regionCode,
+            row.serviceCode,
+            row.currency,
+            row.unitPrice,
+            row.discountPerTierPerUnit,
+            row.priority,
+            row.notes,
+            row.entityRefNo,
+            row.isActive,
+            row.tier1MinQty,
+            row.tier2MinQty,
+            row.tier3MinQty,
+            row.tier4MinQty
+          ].join(" ").toLowerCase();
+
+          const matchesSearch = !search || haystack.includes(search);
+          const matchesStatus = status === "all" ? true : row.isActive.toLowerCase() === status;
+          const matchesProduct = product === "all" ? true : row.productCode === product;
+          const matchesRegion = region === "all" ? true : row.regionCode === region;
+          const matchesCurrency = currency === "all" ? true : row.currency === currency;
+
+          return matchesSearch && matchesStatus && matchesProduct && matchesRegion && matchesCurrency;
+        });
+
+        filteredRows.sort((a, b) => {
+          switch (sort) {
+            case "product-desc":
+              return compareText(b.productCode, a.productCode);
+            case "price-desc":
+              return compareNumber(b.unitPrice, a.unitPrice);
+            case "price-asc":
+              return compareNumber(a.unitPrice, b.unitPrice);
+            case "created-desc":
+              return compareDate(b.created, a.created);
+            case "created-asc":
+              return compareDate(a.created, b.created);
+            case "product-asc":
+            default:
+              return compareText(a.productCode, b.productCode);
+          }
+        });
+
+        renderStats(filteredRows);
+        renderTable(filteredRows);
+        tableNote.textContent = `${filteredRows.length} pricing row${filteredRows.length === 1 ? "" : "s"} shown.`;
+      }
+
+      function renderStats(rows) {
+        statTotal.textContent = rows.length;
+        statActive.textContent = rows.filter(r => r.isActive === "Active").length;
+        statProducts.textContent = uniqueValues(rows.map(r => r.productCode)).length;
+      }
+
+      function renderTable(rows) {
+        if (!rows.length) {
+          table.innerHTML = `
+            <thead>
+              <tr>
+                <th>Pricing</th>
+                <th>Region</th>
+                <th>Service</th>
+                <th>Currency</th>
+                <th>Unit Price</th>
+                <th>Discount / Unit</th>
+                <th>Tier Thresholds</th>
+                <th>Status</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="10">
+                  <div class="empty-state">No pricing rows match the current filters.</div>
+                </td>
+              </tr>
+            </tbody>
+          `;
+          return;
+        }
+
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Pricing</th>
+              <th>Region</th>
+              <th>Service</th>
+              <th>Currency</th>
+              <th>Unit Price</th>
+              <th>Discount / Unit</th>
+              <th>Tier Thresholds</th>
+              <th>Status</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td>
+                  <div class="pricing-name">${escapeHtml(row.productCode || "Unnamed Product")}</div>
+                  <span class="pricing-sub">Pricing ID: ${escapeHtml(row.pricingId || "-")}</span>
+                </td>
+                <td>${escapeHtml(row.regionCode || "-")}</td>
+                <td>${escapeHtml(row.serviceCode || "-")}</td>
+                <td>${escapeHtml(row.currency || "-")}</td>
+                <td class="num">${formatMoney(row.unitPrice, row.currency)}</td>
+                <td class="num">${formatMoney(row.discountPerTierPerUnit, row.currency)}</td>
+                <td>${escapeHtml(formatTierSummary(row))}</td>
+                <td>${renderStatusBadge(row.isActive)}</td>
+                <td>${formatDate(row.updated || row.created)}</td>
+                <td>
+                  <div class="row-actions">
+                    <button type="button" data-action="view" data-id="${escapeHtml(String(row.pricingId))}">View</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        `;
+
+        table.querySelectorAll("[data-action='view']").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = rows.find(r => String(r.pricingId) === btn.dataset.id);
+            if (row) openModal(row);
+          });
+        });
+      }
+
+      function openModal(row) {
+        modalTitle.textContent = row.productCode || "Pricing Details";
+        modalSubtitle.textContent = [row.regionCode, row.serviceCode].filter(Boolean).join(" • ") || "View pricing configuration";
+
+        setText("detailProduct", row.productCode || "-");
+        setText("detailService", row.serviceCode || "-");
+        setText("detailRegion", row.regionCode || "-");
+        setText("detailCurrency", row.currency || "-");
+        setText("detailUnitPrice", formatMoney(row.unitPrice, row.currency));
+        setText("detailDiscount", formatMoney(row.discountPerTierPerUnit, row.currency));
+        setText("detailPriority", row.priority || "-");
+        setText("detailStatus", row.isActive || "-");
+        setText("detailAccountId", row.accountId || "-");
+        setText("detailPricingId", row.pricingId || "-");
+        setText("detailNotes", row.notes || "-");
+        setText("detailCreated", formatDate(row.created));
+        setText("detailUpdated", formatDate(row.updated));
+
+        document.getElementById("detailTiers").innerHTML = `
+          <div class="tier-row"><span>Tier 1 minimum quantity</span><span>${escapeHtml(row.tier1MinQty || "-")}</span></div>
+          <div class="tier-row"><span>Tier 2 minimum quantity</span><span>${escapeHtml(row.tier2MinQty || "-")}</span></div>
+          <div class="tier-row"><span>Tier 3 minimum quantity</span><span>${escapeHtml(row.tier3MinQty || "-")}</span></div>
+          <div class="tier-row"><span>Tier 4 minimum quantity</span><span>${escapeHtml(row.tier4MinQty || "-")}</span></div>
+        `;
+
+        modal.classList.remove("hidden");
+      }
+
+      function setText(id, value) {
+        document.getElementById(id).textContent = value;
+      }
+
+      function closeModal() {
+        modal.classList.add("hidden");
+      }
+
+      function clearFilters() {
+        searchInput.value = "";
+        statusFilter.value = "all";
+        sortBy.value = "product-asc";
+        productFilter.value = "all";
+        regionFilter.value = "all";
+        currencyFilter.value = "all";
+        applyFiltersAndRender();
+      }
+
+      function exportCsv() {
+        const headers = [
+          "Pricing ID",
+          "Account ID",
+          "Product Code",
+          "Region Code",
+          "Service Code",
+          "Currency",
+          "Unit Price",
+          "Discount Per Tier Per Unit",
+          "Tier 1 Min Qty",
+          "Tier 2 Min Qty",
+          "Tier 3 Min Qty",
+          "Tier 4 Min Qty",
+          "Priority",
+          "Is Active",
+          "Notes",
+          "Created",
+          "Updated"
+        ];
+
+        const lines = [
+          headers.join(","),
+          ...filteredRows.map(row => [
+            csvValue(row.pricingId),
+            csvValue(row.accountId),
+            csvValue(row.productCode),
+            csvValue(row.regionCode),
+            csvValue(row.serviceCode),
+            csvValue(row.currency),
+            csvValue(row.unitPrice),
+            csvValue(row.discountPerTierPerUnit),
+            csvValue(row.tier1MinQty),
+            csvValue(row.tier2MinQty),
+            csvValue(row.tier3MinQty),
+            csvValue(row.tier4MinQty),
+            csvValue(row.priority),
+            csvValue(row.isActive),
+            csvValue(row.notes),
+            csvValue(row.created),
+            csvValue(row.updated)
+          ].join(","))
+        ];
+
+        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "pricing.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function compareText(a, b) {
+        return String(a || "").localeCompare(String(b || ""));
+      }
+
+      function compareNumber(a, b) {
+        return toNumber(a) - toNumber(b);
+      }
+
+      function compareDate(a, b) {
+        return parseDateSafe(a) - parseDateSafe(b);
+      }
+
+      function parseDateSafe(value) {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+
+      function toNumber(value) {
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function formatDate(value) {
+        if (!value) return "-";
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return String(value);
+        return d.toLocaleDateString("en-ZA", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric"
+        });
+      }
+
+      function formatMoney(value, currency) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return "-";
+        return `${currencySymbolFor(currency)} ${n.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2
+        })}`;
+      }
+
+      function currencySymbolFor(code) {
+        switch (String(code || "").toUpperCase()) {
+          case "EUR": return "€";
+          case "GBP": return "£";
+          case "ZAR": return "R";
+          case "USD":
+          default:
+            return "$";
+        }
+      }
+
+      function formatTierSummary(row) {
+        const tiers = [
+          row.tier1MinQty ? `T1: ${row.tier1MinQty}` : "",
+          row.tier2MinQty ? `T2: ${row.tier2MinQty}` : "",
+          row.tier3MinQty ? `T3: ${row.tier3MinQty}` : "",
+          row.tier4MinQty ? `T4: ${row.tier4MinQty}` : ""
+        ].filter(Boolean);
+
+        return tiers.length ? tiers.join(" • ") : "-";
+      }
+
+      function renderStatusBadge(status) {
+        if (status === "Active") {
+          return `<span class="status-badge status-active">Active</span>`;
+        }
+        return `<span class="status-badge status-inactive">Inactive</span>`;
+      }
+
+      function csvValue(value) {
+        return `"${String(value ?? "").replaceAll('"', '""')}"`;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      loadData();
+    })();
+  </script>
+</body>
+</html>

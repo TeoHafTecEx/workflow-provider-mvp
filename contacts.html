@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Contacts – TGC CRM</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Load global configuration for API endpoints -->
+  <script src="config.js"></script>
+</head>
+<body>
+  <div id="crm-page" data-theme="light">
+    <div class="wrapper">
+      <div class="row">
+        <div>
+          <h1>Contacts</h1>
+          <p class="muted-text">Manage contact records, search records, and view or update entries.</p>
+        </div>
+        <div class="spacer"></div>
+        <a href="index.html" class="btn">🏠 Home</a>
+        <button id="themeToggle" type="button">Light / Dark</button>
+        <button id="refreshBtn" type="button">Refresh</button>
+        <button id="newContactBtn" type="button">+ New Contact</button>
+      </div>
+
+      <div class="grid grid-3">
+        <div class="card">
+          <label>Total Contacts</label>
+          <h2 id="statTotal">0</h2>
+        </div>
+        <div class="card">
+          <label>Active Contacts</label>
+          <h2 id="statActive">0</h2>
+        </div>
+        <div class="card">
+          <label>New This Month</label>
+          <h2 id="statNewMonth">0</h2>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="grid grid-3">
+          <div>
+            <label for="searchInput">Search</label>
+            <input id="searchInput" type="text" placeholder="Search by name, surname, email, phone, company..." />
+          </div>
+
+          <div>
+            <label for="statusFilter">Status</label>
+            <select id="statusFilter">
+              <option value="all">All statuses</option>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="draft">Draft</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+
+          <div>
+            <label for="sortBy">Sort By</label>
+            <select id="sortBy">
+              <option value="name-asc">Name A → Z</option>
+              <option value="name-desc">Name Z → A</option>
+              <option value="created-desc">Newest created</option>
+              <option value="created-asc">Oldest created</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="clearFiltersBtn" type="button">Clear Filters</button>
+          <button id="exportBtn" type="button">Export CSV</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="table-wrap">
+          <table id="dataTable"></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="contactModal" class="hidden">
+    <div class="wrapper">
+      <div class="card">
+        <div class="row">
+          <div>
+            <h2 id="modalTitle">New Contact</h2>
+            <p class="muted-text" id="modalSubtitle">Create a new contact record</p>
+          </div>
+          <div class="spacer"></div>
+          <button id="closeModalBtn" type="button">Close</button>
+        </div>
+
+        <form id="contactForm">
+          <input type="hidden" id="formMode" value="create" />
+          <input type="hidden" id="editRowId" value="" />
+
+          <div class="grid grid-2">
+            <div>
+              <label for="contactName">First Name</label>
+              <input id="contactName" type="text" required />
+            </div>
+
+            <div>
+              <label for="contactSurname">Surname</label>
+              <input id="contactSurname" type="text" />
+            </div>
+
+            <div>
+              <label for="contactCompany">Company</label>
+              <input id="contactCompany" type="text" />
+            </div>
+
+            <div>
+              <label for="contactIndustry">Industry</label>
+              <input id="contactIndustry" type="text" />
+            </div>
+
+            <div>
+              <label for="contactEmail">Email</label>
+              <input id="contactEmail" type="email" />
+            </div>
+
+            <div>
+              <label for="contactPhone">Phone</label>
+              <input id="contactPhone" type="text" />
+            </div>
+
+            <div>
+              <label for="contactJobTitle">Job Title</label>
+              <input id="contactJobTitle" type="text" />
+            </div>
+
+            <div>
+              <label for="contactRole">Role</label>
+              <input id="contactRole" type="text" />
+            </div>
+
+            <div>
+              <label for="contactOwner">Owner</label>
+              <input id="contactOwner" type="text" />
+            </div>
+
+            <div>
+              <label for="location">Location</label>
+              <input id="location" type="text" />
+            </div>
+
+            <div>
+              <label for="serviceCategory">Service Category</label>
+              <input id="serviceCategory" type="text" />
+            </div>
+
+            <div>
+              <label for="source">Source</label>
+              <input id="source" type="text" />
+            </div>
+
+            <div>
+              <label for="status">Status</label>
+              <select id="status">
+                <option value="Active">Active</option>
+                <option value="Inactive">Inactive</option>
+                <option value="Draft">Draft</option>
+              </select>
+            </div>
+
+            <div class="grid-full">
+              <label for="requestDetail">Request Detail</label>
+              <input id="requestDetail" type="text" />
+            </div>
+          </div>
+
+          <div class="actions">
+            <button id="deleteBtn" type="button" class="remove-btn hidden">Delete</button>
+            <button id="cancelBtn" type="button">Cancel</button>
+            <button id="saveBtn" type="submit" class="submit-btn">Save Contact</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const root = document.getElementById("crm-page");
+      const table = document.getElementById("dataTable");
+
+      const statTotal = document.getElementById("statTotal");
+      const statActive = document.getElementById("statActive");
+      const statNewMonth = document.getElementById("statNewMonth");
+
+      const themeToggle = document.getElementById("themeToggle");
+      const refreshBtn = document.getElementById("refreshBtn");
+      const newContactBtn = document.getElementById("newContactBtn");
+      const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+      const exportBtn = document.getElementById("exportBtn");
+
+      const searchInput = document.getElementById("searchInput");
+      const statusFilter = document.getElementById("statusFilter");
+      const sortBy = document.getElementById("sortBy");
+
+      const modal = document.getElementById("contactModal");
+      const modalTitle = document.getElementById("modalTitle");
+      const modalSubtitle = document.getElementById("modalSubtitle");
+      const closeModalBtn = document.getElementById("closeModalBtn");
+      const cancelBtn = document.getElementById("cancelBtn");
+      const deleteBtn = document.getElementById("deleteBtn");
+      const contactForm = document.getElementById("contactForm");
+      const formMode = document.getElementById("formMode");
+      const editRowId = document.getElementById("editRowId");
+
+      // Base URL for contacts derived from the global configuration
+      const API_BASE = window.APP_CONFIG.POSTGRES_API_BASE + "/contacts";
+      let rawRows = [];
+      let filteredRows = [];
+
+      const FIELD_MAP = {
+        id: ["ContactId", "Id", "ID"],
+        accountId: ["AccountId"],
+        firstName: ["ContactName", "FirstName", "Name"],
+        surname: ["ContactSurname", "Surname", "LastName"],
+        company: ["ContactCompany", "Company"],
+        industry: ["ContactIndustry", "Industry"],
+        email: ["ContactEmail", "EmailAddress", "Email"],
+        phone: ["ContactPhone", "TelephoneNumber", "PhoneNumber", "Phone"],
+        jobTitle: ["ContactJobTitle", "JobTitle"],
+        owner: ["ContactOwner", "Owner"],
+        role: ["ContactRole", "Role"],
+        requestDetail: ["ContactRequestDetail", "RequestDetail", "Notes", "Comment", "Description"],
+        statusId: ["ContactStatusId", "StatusId"],
+        location: ["Location", "City"],
+        serviceCategory: ["ServiceCategory"],
+        source: ["Source"],
+        submitPage: ["SubmitPage"],
+        searchTerm: ["SearchTerm"],
+        created: ["CreateDateTime", "CreatedDate", "CreatedOn"],
+        updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"]
+      };
+
+      themeToggle.addEventListener("click", () => {
+        root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+      });
+
+      refreshBtn.addEventListener("click", loadData);
+      newContactBtn.addEventListener("click", () => openModal("create"));
+      clearFiltersBtn.addEventListener("click", clearFilters);
+      exportBtn.addEventListener("click", exportCsv);
+
+      searchInput.addEventListener("input", applyFiltersAndRender);
+      statusFilter.addEventListener("change", applyFiltersAndRender);
+      sortBy.addEventListener("change", applyFiltersAndRender);
+
+      closeModalBtn.addEventListener("click", closeModal);
+      cancelBtn.addEventListener("click", closeModal);
+      deleteBtn.addEventListener("click", handleDelete);
+      contactForm.addEventListener("submit", handleSave);
+
+      async function loadData() {
+        table.innerHTML = "<thead><tr><th>Loading...</th></tr></thead>";
+
+        try {
+          const res = await fetch(`${API_BASE}?page=1&size=100`);
+          const result = await res.json();
+
+          if (!res.ok || !result.ok) {
+            throw new Error(result.error || "Failed to load contacts");
+          }
+
+          rawRows = (result.rows || []).map(normalizeRow);
+          applyFiltersAndRender();
+        } catch (err) {
+          table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
+          console.error(err);
+        }
+      }
+
+      function normalizeRow(row) {
+        const firstName = getFirst(row, FIELD_MAP.firstName);
+        const surname = getFirst(row, FIELD_MAP.surname);
+        const fullName = [firstName, surname].filter(Boolean).join(" ").trim();
+
+        return {
+          raw: row,
+          id: getFirst(row, FIELD_MAP.id),
+          accountId: getFirst(row, FIELD_MAP.accountId),
+          firstName,
+          surname,
+          name: fullName || firstName || surname || "",
+          company: getFirst(row, FIELD_MAP.company),
+          industry: getFirst(row, FIELD_MAP.industry),
+          email: getFirst(row, FIELD_MAP.email),
+          phone: getFirst(row, FIELD_MAP.phone),
+          jobTitle: getFirst(row, FIELD_MAP.jobTitle),
+          owner: getFirst(row, FIELD_MAP.owner),
+          role: getFirst(row, FIELD_MAP.role),
+          requestDetail: getFirst(row, FIELD_MAP.requestDetail),
+          statusId: getFirst(row, FIELD_MAP.statusId),
+          status: normalizeStatus(getFirst(row, FIELD_MAP.statusId)),
+          location: getFirst(row, FIELD_MAP.location),
+          serviceCategory: getFirst(row, FIELD_MAP.serviceCategory),
+          source: getFirst(row, FIELD_MAP.source),
+          submitPage: getFirst(row, FIELD_MAP.submitPage),
+          searchTerm: getFirst(row, FIELD_MAP.searchTerm),
+          created: getFirst(row, FIELD_MAP.created),
+          updated: getFirst(row, FIELD_MAP.updated)
+        };
+      }
+
+      function getFirst(obj, keys) {
+        for (const key of keys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+            return obj[key];
+          }
+        }
+        return "";
+      }
+
+      function normalizeStatus(value) {
+        const str = String(value || "").trim().toLowerCase();
+        if (!str) return "Unknown";
+        if (["1", "active", "enabled", "open"].includes(str)) return "Active";
+        if (["0", "inactive", "disabled", "closed"].includes(str)) return "Inactive";
+        if (str.includes("draft")) return "Draft";
+        return "Unknown";
+      }
+
+      function applyFiltersAndRender() {
+        const search = searchInput.value.trim().toLowerCase();
+        const status = statusFilter.value;
+        const sort = sortBy.value;
+
+        filteredRows = rawRows.filter(row => {
+          const haystack = [
+            row.name,
+            row.firstName,
+            row.surname,
+            row.company,
+            row.industry,
+            row.email,
+            row.phone,
+            row.jobTitle,
+            row.owner,
+            row.role,
+            row.requestDetail,
+            row.location,
+            row.serviceCategory,
+            row.source,
+            row.status,
+            row.accountId
+          ].join(" ").toLowerCase();
+
+          const matchesSearch = !search || haystack.includes(search);
+          const matchesStatus =
+            status === "all"
+              ? true
+              : status === "unknown"
+              ? !row.status || row.status === "Unknown"
+              : row.status.toLowerCase() === status;
+
+          return matchesSearch && matchesStatus;
+        });
+
+        filteredRows.sort((a, b) => {
+          switch (sort) {
+            case "name-desc":
+              return compareText(b.name, a.name);
+            case "created-desc":
+              return compareDate(b.created, a.created);
+            case "created-asc":
+              return compareDate(a.created, b.created);
+            default:
+              return compareText(a.name, b.name);
+          }
+        });
+
+        renderStats(filteredRows);
+        renderTable(filteredRows);
+      }
+
+      function compareText(a, b) {
+        return String(a || "").localeCompare(String(b || ""));
+      }
+
+      function compareDate(a, b) {
+        return parseDateSafe(a) - parseDateSafe(b);
+      }
+
+      function parseDateSafe(value) {
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+
+      function renderStats(rows) {
+        statTotal.textContent = rows.length;
+        statActive.textContent = rows.filter(r => r.status === "Active").length;
+
+        const now = new Date();
+        statNewMonth.textContent = rows.filter(r => {
+          const d = new Date(r.created);
+          return !isNaN(d.getTime()) &&
+            d.getMonth() === now.getMonth() &&
+            d.getFullYear() === now.getFullYear();
+        }).length;
+      }
+
+      function renderTable(rows) {
+        if (!rows.length) {
+          table.innerHTML = `
+            <thead>
+              <tr>
+                <th>Contact</th>
+                <th>Company</th>
+                <th>Email</th>
+                <th>Phone</th>
+                <th>Status</th>
+                <th>Role / Title</th>
+                <th>Location</th>
+                <th>Created</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colspan="10">No contacts match the current filters.</td>
+              </tr>
+            </tbody>
+          `;
+          return;
+        }
+
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Contact</th>
+              <th>Company</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Status</th>
+              <th>Role / Title</th>
+              <th>Location</th>
+              <th>Created</th>
+              <th>Updated</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(row.name || "Unnamed Contact")}</strong><br />
+                  <span class="muted-text">ID: ${escapeHtml(row.id || "-")}</span>
+                </td>
+                <td>${escapeHtml(row.company || "-")}</td>
+                <td>${escapeHtml(row.email || "-")}</td>
+                <td>${escapeHtml(row.phone || "-")}</td>
+                <td>${escapeHtml(row.status || "Unknown")}</td>
+                <td>${escapeHtml([row.role, row.jobTitle].filter(Boolean).join(" • ") || "-")}</td>
+                <td>${escapeHtml(row.location || "-")}</td>
+                <td>${formatDate(row.created)}</td>
+                <td>${formatDate(row.updated)}</td>
+                <td>
+                  <div class="actions">
+                    <button type="button" data-action="edit" data-id="${escapeHtml(row.id)}">Edit</button>
+                    <button type="button" data-action="view" data-id="${escapeHtml(row.id)}">View</button>
+                  </div>
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        `;
+
+        table.querySelectorAll("[data-action='edit']").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = rows.find(r => String(r.id) === btn.dataset.id);
+            if (row) openModal("edit", row);
+          });
+        });
+
+        table.querySelectorAll("[data-action='view']").forEach(btn => {
+          btn.addEventListener("click", () => {
+            const row = rows.find(r => String(r.id) === btn.dataset.id);
+            if (row) openModal("view", row);
+          });
+        });
+      }
+
+      function formatDate(value) {
+        if (!value) return "-";
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return escapeHtml(String(value));
+        return escapeHtml(
+          d.toLocaleDateString("en-ZA", {
+            day: "2-digit",
+            month: "short",
+            year: "numeric"
+          })
+        );
+      }
+
+      function openModal(mode, row = null) {
+        formMode.value = mode;
+        editRowId.value = row?.id || "";
+
+        const isView = mode === "view";
+        const isEdit = mode === "edit";
+
+        modalTitle.textContent =
+          mode === "create" ? "New Contact" :
+          mode === "edit" ? "Edit Contact" :
+          "View Contact";
+
+        modalSubtitle.textContent =
+          mode === "create" ? "Create a new contact record" :
+          mode === "edit" ? "Update contact details" :
+          "View contact information";
+
+        document.getElementById("contactName").value = row?.firstName || "";
+        document.getElementById("contactSurname").value = row?.surname || "";
+        document.getElementById("contactCompany").value = row?.company || "";
+        document.getElementById("contactIndustry").value = row?.industry || "";
+        document.getElementById("contactEmail").value = row?.email || "";
+        document.getElementById("contactPhone").value = row?.phone || "";
+        document.getElementById("contactJobTitle").value = row?.jobTitle || "";
+        document.getElementById("contactRole").value = row?.role || "";
+        document.getElementById("contactOwner").value = row?.owner || "";
+        document.getElementById("location").value = row?.location || "";
+        document.getElementById("serviceCategory").value = row?.serviceCategory || "";
+        document.getElementById("source").value = row?.source || "";
+        document.getElementById("requestDetail").value = row?.requestDetail || "";
+        document.getElementById("status").value =
+          row?.status && ["Active", "Inactive", "Draft"].includes(row.status) ? row.status : "Active";
+
+        Array.from(contactForm.querySelectorAll("input, select")).forEach(el => {
+          if (el.type !== "hidden") el.disabled = isView;
+        });
+
+        deleteBtn.classList.toggle("hidden", !isEdit);
+        document.getElementById("saveBtn").classList.toggle("hidden", isView);
+
+        modal.classList.remove("hidden");
+      }
+
+      function closeModal() {
+        modal.classList.add("hidden");
+        contactForm.reset();
+        formMode.value = "create";
+        editRowId.value = "";
+        deleteBtn.classList.add("hidden");
+        document.getElementById("saveBtn").classList.remove("hidden");
+      }
+
+      async function handleSave(e) {
+        e.preventDefault();
+
+        const mode = formMode.value;
+        const rowId = editRowId.value;
+
+        const payload = {
+          ContactName: document.getElementById("contactName").value.trim(),
+          ContactSurname: document.getElementById("contactSurname").value.trim(),
+          ContactCompany: document.getElementById("contactCompany").value.trim(),
+          ContactIndustry: document.getElementById("contactIndustry").value.trim(),
+          ContactEmail: document.getElementById("contactEmail").value.trim(),
+          ContactPhone: document.getElementById("contactPhone").value.trim(),
+          ContactJobTitle: document.getElementById("contactJobTitle").value.trim(),
+          ContactRole: document.getElementById("contactRole").value.trim(),
+          ContactOwner: document.getElementById("contactOwner").value.trim(),
+          Location: document.getElementById("location").value.trim(),
+          ServiceCategory: document.getElementById("serviceCategory").value.trim(),
+          Source: document.getElementById("source").value.trim(),
+          ContactRequestDetail: document.getElementById("requestDetail").value.trim(),
+          ContactStatusId: document.getElementById("status").value
+        };
+
+        try {
+          const url = mode === "edit" ? `${API_BASE}/${encodeURIComponent(rowId)}` : API_BASE;
+          const method = mode === "edit" ? "PUT" : "POST";
+
+          const res = await fetch(url, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+
+          const result = await res.json().catch(() => ({}));
+
+          if (!res.ok || result.ok === false) {
+            throw new Error(result.error || `Failed to ${mode === "edit" ? "update" : "create"} contact`);
+          }
+
+          closeModal();
+          await loadData();
+          alert(mode === "edit" ? "Contact updated successfully." : "Contact created successfully.");
+        } catch (err) {
+          console.error(err);
+          alert(err.message);
+        }
+      }
+
+      async function handleDelete() {
+        const rowId = editRowId.value;
+        if (!rowId) return;
+
+        if (!confirm("Delete this contact?")) return;
+
+        try {
+          const res = await fetch(`${API_BASE}/${encodeURIComponent(rowId)}`, {
+            method: "DELETE"
+          });
+
+          const result = await res.json().catch(() => ({}));
+
+          if (!res.ok || result.ok === false) {
+            throw new Error(result.error || "Failed to delete contact");
+          }
+
+          closeModal();
+          await loadData();
+          alert("Contact deleted successfully.");
+        } catch (err) {
+          console.error(err);
+          alert(err.message);
+        }
+      }
+
+      function clearFilters() {
+        searchInput.value = "";
+        statusFilter.value = "all";
+        sortBy.value = "name-asc";
+        applyFiltersAndRender();
+      }
+
+      function exportCsv() {
+        const headers = ["ID", "Contact Name", "Company", "Email", "Phone", "Status", "Role / Title", "Location", "Created", "Updated"];
+        const lines = [
+          headers.join(","),
+          ...filteredRows.map(row => [
+            csvValue(row.id),
+            csvValue(row.name),
+            csvValue(row.company),
+            csvValue(row.email),
+            csvValue(row.phone),
+            csvValue(row.status),
+            csvValue([row.role, row.jobTitle].filter(Boolean).join(" • ")),
+            csvValue(row.location),
+            csvValue(row.created),
+            csvValue(row.updated)
+          ].join(","))
+        ];
+
+        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "contacts.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function csvValue(value) {
+        return `"${String(value ?? "").replaceAll('"', '""')}"`;
+      }
+
+      function escapeHtml(str) {
+        return String(str ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      loadData();
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Work Orders – TGC CRM</title>
+<style>
+/* Shared CRM styles */
+:root{
+  --page-bg:#f4f7fb;
+}
+*, *::before, *::after{ box-sizing:border-box; }
+html,body{
+  margin:0;
+  padding:0;
+  width:100%;
+  overflow-x:hidden;
+}
+body{
+  background:var(--page-bg);
+  font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif;
+}
+#crm-page[data-theme="dark"]{
+  --main:#FFFFFF;
+  --secondary:#0A1826;
+  --accent:#D3A911;
+  --panel:#0f2234;
+  --border:#133147;
+  --muted:#9fb3c8;
+  --head:#0e1d2b;
+  --btnText:#0A1826;
+  --shadow:0 6px 20px rgba(0,0,0,.25);
+}
+#crm-page[data-theme="light"]{
+  --main:#0A1826;
+  --secondary:#FFFFFF;
+  --accent:#D3A911;
+  --panel:#ffffff;
+  --border:#e6ecf3;
+  --muted:#5b6b7a;
+  --head:#f6f8fb;
+  --btnText:#0A1826;
+  --shadow:0 6px 18px rgba(10,24,38,.08);
+}
+#crm-page{
+  background:var(--secondary);
+  color:var(--main);
+  width:100%;
+  min-height:100vh;
+  padding:20px 14px 40px;
+}
+.wrapper{
+  width:100%;
+  max-width:1400px;
+  margin:0 auto;
+}
+.brandbar{
+  height:4px;
+  background:linear-gradient(90deg,#fff 0,#fff 33%,#0A1826 33%,#0A1826 66%,#D3A911 66%);
+  border-radius:4px;
+  margin:0 auto 16px;
+  width:100%;
+}
+.row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+.spacer{ flex:1; }
+.card{
+  background:var(--panel);
+  border:1px solid var(--border);
+  border-radius:14px;
+  padding:16px;
+  box-shadow:var(--shadow);
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+  width:100%;
+}
+.table-wrap{
+  width:100%;
+  overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
+  border:1px solid var(--border);
+  border-radius:12px;
+}
+table{
+  width:100%;
+  border-collapse:collapse;
+  table-layout:fixed;
+}
+thead th{
+  background:var(--head);
+  color:var(--main);
+  font-weight:700;
+  padding:12px 10px;
+  border-bottom:1px solid var(--border);
+  text-align:left;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+td{
+  background:var(--panel);
+  padding:10px 8px;
+  border-bottom:1px solid var(--border);
+  vertical-align:middle;
+  overflow:hidden;
+  text-overflow:ellipsis;
+}
+button, a.btn{
+  border:1px solid var(--border);
+  border-radius:10px;
+  padding:10px 12px;
+  font-size:14px;
+  background:transparent;
+  color:var(--accent);
+  cursor:pointer;
+  text-decoration:none;
+  transition:background .15s ease, color .15s ease;
+}
+button:hover, a.btn:hover{
+  background:var(--accent);
+  color:var(--btnText);
+}
+</style>
+</head>
+<body>
+<div id="crm-page" data-theme="light">
+  <div class="wrapper">
+    <div class="brandbar" aria-hidden="true"></div>
+    <div class="row">
+      <h1 style="margin:0;font-size:24px;">Work Orders</h1>
+      <div class="spacer"></div>
+      <a href="index.html" class="btn" style="margin-right:8px;">🏠 Home</a>
+      <button id="themeToggle" class="btn" type="button">Light / Dark</button>
+      <button id="refresh" class="btn" type="button">Refresh</button>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <div class="table-wrap">
+        <table id="dataTable"></table>
+      </div>
+    </div>
+  </div>
+</div>
+<!-- Load global configuration for API endpoints -->
+<script src="config.js"></script>
+<script>
+(function(){
+  const root = document.getElementById('crm-page');
+  document.getElementById('themeToggle').onclick = () => {
+    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  };
+  async function loadData(){
+    const table = document.getElementById('dataTable');
+    table.innerHTML = '<thead><tr><th>Loading...</th></tr></thead>';
+    try {
+      const res = await fetch(window.APP_CONFIG.POSTGRES_API_BASE + '/work-orders');
+      if(!res.ok) throw new Error('Failed to fetch');
+      const data = await res.json();
+      buildTable(table, data);
+    } catch(err) {
+      table.innerHTML = '<thead><tr><th>Error loading data</th></tr></thead>';
+      console.error(err);
+    }
+  }
+  function buildTable(table, data){
+    if(!Array.isArray(data) || data.length === 0){
+      table.innerHTML = '<thead><tr><th>No data available</th></tr></thead>';
+      return;
+    }
+    const cols = Object.keys(data[0]);
+    const thead = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead>';
+    const tbody = '<tbody>' + data.map(row => '<tr>' + cols.map(c => `<td>${row[c]}</td>`).join('') + '</tr>').join('') + '</tbody>';
+    table.innerHTML = thead + tbody;
+  }
+  document.getElementById('refresh').onclick = loadData;
+  // Initial load
+  loadData();
+})();
+</script>
+</body>
+</html>

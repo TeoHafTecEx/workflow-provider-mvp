@@ -204,15 +204,15 @@
 
       // Fetch pricing, accounts and contacts from your Postgres API.
       Promise.all([
-        fetch(`${POSTGRES_API}/pricing?page=1&size=500`).then(res => res.json()).catch(err => {
+        fetch(`${POSTGRES_API}/api_pricing`).then(res => res.json()).catch(err => {
           console.error("Failed to load pricing", err);
           return { rows: [] };
         }),
-        fetch(`${POSTGRES_API}/accounts?page=1&size=500`).then(res => res.json()).catch(err => {
+        fetch(`${POSTGRES_API}/api_accounts`).then(res => res.json()).catch(err => {
           console.error("Failed to load accounts", err);
           return { rows: [] };
         }),
-        fetch(`${POSTGRES_API}/contacts?page=1&size=500`).then(res => res.json()).catch(err => {
+        fetch(`${POSTGRES_API}/api_contacts`).then(res => res.json()).catch(err => {
           console.error("Failed to load contacts", err);
           return { rows: [] };
         })

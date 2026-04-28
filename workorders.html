@@ -110,6 +110,19 @@ td{
   overflow:hidden;
   text-overflow:ellipsis;
 }
+
+/* Numeric cells are right‑aligned with tabular figures for easy comparison. */
+.num{
+  text-align:right;
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+
+/* Muted text for secondary information such as reference numbers. */
+.muted-text{
+  color:var(--muted);
+  font-size:12px;
+}
 button, a.btn{
   border:1px solid var(--border);
   border-radius:10px;
@@ -148,36 +161,294 @@ button:hover, a.btn:hover{
 <!-- Load global configuration for API endpoints -->
 <script src="config.js"></script>
 <script>
-(function(){
-  const root = document.getElementById('crm-page');
-  document.getElementById('themeToggle').onclick = () => {
-    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+/**
+ * Enhanced Work Orders page.
+ * This script replaces the generic table rendering with a hierarchical view that
+ * groups work items under their parent work order. Each work order row is
+ * expandable; clicking the arrow button will reveal a nested table of items
+ * along with calculated totals and gross profit (ANF) values.
+ *
+ * The design takes inspiration from the pricing page: numeric values are
+ * right‑aligned via the `.num` class, and the table uses the same panel and
+ * border colours defined by the theme. The existing theme toggle continues to
+ * function as before.
+ */
+(function () {
+  const root = document.getElementById("crm-page");
+  const table = document.getElementById("dataTable");
+  const refreshBtn = document.getElementById("refresh");
+
+  // Define which properties correspond to commonly used fields. Work order and
+  // work item records coming from the backend may use different column names;
+  // these arrays provide a simple fallback mapping.
+  const ORDER_FIELD_MAP = {
+    id: ["WorkOrderId", "WorkOrderID", "Id", "ID"],
+    accountId: ["AccountId", "AccountID"],
+    contactId: ["ContactId", "ContactID"],
+    entityRefNo: ["EntityRefNo", "RefNo", "OrderNumber"],
+    created: ["CreateDateTime", "CreatedDate", "CreatedOn", "DateCreated"],
+    updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"],
+    currency: ["Currency"],
   };
-  async function loadData(){
-    const table = document.getElementById('dataTable');
-    table.innerHTML = '<thead><tr><th>Loading...</th></tr></thead>';
+
+  const ITEM_FIELD_MAP = {
+    service: ["Service", "ServiceName", "ServiceCode"],
+    product: ["Product", "ProductName", "ProductCode"],
+    region: ["Region", "RegionName", "RegionCode"],
+    quantity: ["Quantity", "Qty", "QtyOrdered"],
+    unitPrice: ["UnitPrice", "PricePerUnit", "Price"],
+    estimatedCost: ["EstimatedCost", "EstCost", "Cost"],
+    notes: ["Notes", "Description", "Comments"],
+  };
+
+  // Toggle between light and dark modes.
+  document.getElementById("themeToggle").onclick = () => {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+  };
+
+  refreshBtn.addEventListener("click", loadData);
+
+  /**
+   * Helper that returns the first non‑empty value from a set of possible keys.
+   * @param {object} obj
+   * @param {string[]} keys
+   * @returns {any}
+   */
+  function getFirst(obj, keys) {
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+        return obj[key];
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Format a number as a locale‑aware string with two decimals.
+   * When the value is not numeric, a dash is returned.
+   * @param {number} n
+   * @returns {string}
+   */
+  function formatNumber(n) {
+    const num = Number(n);
+    if (isNaN(num)) return "-";
+    return num.toLocaleString("en-ZA", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+
+  /**
+   * Format a date string or date object into a short localised format.
+   * @param {string|Date} value
+   * @returns {string}
+   */
+  function formatDate(value) {
+    if (!value) return "-";
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return String(value);
+    return d.toLocaleDateString("en-ZA", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+
+  /**
+   * Main entry point: fetch work orders and their items, then build the table.
+   */
+  async function loadData() {
+    table.innerHTML =
+      "<thead><tr><th>Loading work orders...</th></tr></thead>";
     try {
-      const res = await fetch(window.APP_CONFIG.POSTGRES_API_BASE + '/work-orders');
-      if(!res.ok) throw new Error('Failed to fetch');
-      const data = await res.json();
-      buildTable(table, data);
-    } catch(err) {
-      table.innerHTML = '<thead><tr><th>Error loading data</th></tr></thead>';
+      // Fetch all work orders. A page/size query is provided to limit the rows.
+      const woRes = await fetch(
+        `${window.APP_CONFIG.POSTGRES_API_BASE}/work-orders?page=1&size=200`
+      );
+      const woData = await woRes.json();
+      const orders = Array.isArray(woData.rows) ? woData.rows : woData;
+
+      // For each work order, fetch its items concurrently.
+      const ordersWithItems = await Promise.all(
+        orders.map(async (order) => {
+          const orderId = getFirst(order, ORDER_FIELD_MAP.id);
+          let items = [];
+          try {
+            if (orderId !== undefined) {
+              const wiRes = await fetch(
+                `${window.APP_CONFIG.POSTGRES_API_BASE}/work-items?workOrderId=${encodeURIComponent(
+                  orderId
+                )}`
+              );
+              const wiData = await wiRes.json();
+              items = Array.isArray(wiData.rows) ? wiData.rows : wiData;
+            }
+          } catch (err) {
+            console.error("Failed to fetch items for order", orderId, err);
+          }
+          return { order, items };
+        })
+      );
+
+      buildTable(ordersWithItems);
+    } catch (err) {
       console.error(err);
+      table.innerHTML =
+        "<thead><tr><th>Error loading work orders</th></tr></thead>";
     }
   }
-  function buildTable(table, data){
-    if(!Array.isArray(data) || data.length === 0){
-      table.innerHTML = '<thead><tr><th>No data available</th></tr></thead>';
+
+  /**
+   * Build and render the hierarchical table of work orders and items.
+   * @param {{order:object, items:object[]}[]} data
+   */
+  function buildTable(data) {
+    if (!Array.isArray(data) || data.length === 0) {
+      table.innerHTML =
+        "<thead><tr><th>No work orders available</th></tr></thead>";
       return;
     }
-    const cols = Object.keys(data[0]);
-    const thead = '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead>';
-    const tbody = '<tbody>' + data.map(row => '<tr>' + cols.map(c => `<td>${row[c]}</td>`).join('') + '</tr>').join('') + '</tbody>';
-    table.innerHTML = thead + tbody;
+
+    // Assemble header row.
+    const header = `
+      <thead>
+        <tr>
+          <th>Work Order</th>
+          <th>Account</th>
+          <th>Contact</th>
+          <th class="num">Total</th>
+          <th class="num">ANF</th>
+          <th>Created</th>
+          <th>Updated</th>
+          <th>Expand</th>
+        </tr>
+      </thead>
+    `;
+
+    // Generate rows.
+    const bodyRows = data
+      .map(({ order, items }, index) => {
+        const id = getFirst(order, ORDER_FIELD_MAP.id) || "-";
+        const accountId = getFirst(order, ORDER_FIELD_MAP.accountId) || "-";
+        const contactId = getFirst(order, ORDER_FIELD_MAP.contactId) || "-";
+        const entityRef = getFirst(order, ORDER_FIELD_MAP.entityRefNo) || "";
+        const created = formatDate(getFirst(order, ORDER_FIELD_MAP.created));
+        const updated = formatDate(getFirst(order, ORDER_FIELD_MAP.updated));
+        const currency = getFirst(order, ORDER_FIELD_MAP.currency) || "";
+
+        // Compute totals.
+        let total = 0;
+        let anf = 0;
+        const itemRows = items.map((item) => {
+          const qty = Number(getFirst(item, ITEM_FIELD_MAP.quantity)) || 0;
+          const unitPrice =
+            Number(getFirst(item, ITEM_FIELD_MAP.unitPrice)) || 0;
+          const estCost =
+            Number(getFirst(item, ITEM_FIELD_MAP.estimatedCost)) || 0;
+          const lineTotal = qty * unitPrice;
+          const gross = lineTotal - estCost;
+          total += lineTotal;
+          anf += gross;
+          return `
+            <tr>
+              <td>${escapeHtml(
+                getFirst(item, ITEM_FIELD_MAP.service) || "-"
+              )}</td>
+              <td>${escapeHtml(
+                getFirst(item, ITEM_FIELD_MAP.product) || "-"
+              )}</td>
+              <td>${escapeHtml(
+                getFirst(item, ITEM_FIELD_MAP.region) || "-"
+              )}</td>
+              <td class="num">${formatNumber(qty)}</td>
+              <td class="num">${formatNumber(unitPrice)}</td>
+              <td class="num">${formatNumber(lineTotal)}</td>
+              <td class="num">${
+                estCost ? formatNumber(estCost) : "-"
+              }</td>
+              <td class="num">${formatNumber(gross)}</td>
+              <td class="num">${
+                lineTotal
+                  ? formatNumber((gross / lineTotal) * 100) + "%"
+                  : "-"
+              }</td>
+            </tr>
+          `;
+        });
+
+        // Summary row with toggle button. We include entityRef as muted text if present.
+        const summaryCell = `
+          <strong>${escapeHtml(String(id))}</strong>${
+            entityRef ? `<br/><span class="muted-text">${escapeHtml(entityRef)}</span>` : ""
+          }
+        `;
+        const totalCell = total ? formatNumber(total) : "-";
+        const anfCell = anf ? formatNumber(anf) : "-";
+
+        return `
+          <tr class="wo-summary" data-index="${index}">
+            <td>${summaryCell}</td>
+            <td>${escapeHtml(String(accountId))}</td>
+            <td>${escapeHtml(String(contactId))}</td>
+            <td class="num">${totalCell}</td>
+            <td class="num">${anfCell}</td>
+            <td>${created}</td>
+            <td>${updated}</td>
+            <td style="text-align:center;">
+              <button type="button" class="toggle-btn" aria-label="Expand row">▸</button>
+            </td>
+          </tr>
+          <tr class="wo-items-row" style="display:none;">
+            <td colspan="8" style="padding:0;border:0;">
+              <table class="work-items-table" style="width:100%;border-collapse:collapse;">
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Product</th>
+                    <th>Region</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Unit Price</th>
+                    <th class="num">Line Total</th>
+                    <th class="num">Est Cost</th>
+                    <th class="num">ANF</th>
+                    <th class="num">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${itemRows.join("") || `<tr><td colspan="9">No items found.</td></tr>`}
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        `;
+      })
+      .join("");
+
+    table.innerHTML = header + "<tbody>" + bodyRows + "</tbody>";
+
+    // Attach event listeners for toggling item rows.
+    table.querySelectorAll(".toggle-btn").forEach((btn, idx) => {
+      btn.addEventListener("click", () => {
+        const summaryRow = btn.closest(".wo-summary");
+        const itemsRow = summaryRow.nextElementSibling;
+        const isOpen = itemsRow.style.display !== "none";
+        itemsRow.style.display = isOpen ? "none" : "";
+        btn.textContent = isOpen ? "▸" : "▾";
+      });
+    });
   }
-  document.getElementById('refresh').onclick = loadData;
-  // Initial load
+
+  // Escape HTML to prevent injection when displaying raw values.
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+
+  // Kick off the initial load.
   loadData();
 })();
 </script>

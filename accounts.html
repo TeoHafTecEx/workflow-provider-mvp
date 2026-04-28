@@ -5,6 +5,50 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Accounts – TGC CRM</title>
   <link rel="stylesheet" href="styles.css" />
+  <!-- Page specific overrides for nested work order display -->
+  <style>
+    /* Align numeric columns in work order tables */
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+    /* Muted text for secondary information (e.g., reference numbers) */
+    .muted-text {
+      color: var(--muted);
+      font-size: 12px;
+    }
+    /* Styling for the work orders section inside the account modal */
+    .work-orders-container details {
+      margin-bottom: 8px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+    .work-orders-container summary {
+      cursor: pointer;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      list-style: none;
+    }
+    .work-orders-container summary::-webkit-details-marker {
+      display: none;
+    }
+    .work-orders-container table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    .work-orders-container th,
+    .work-orders-container td {
+      padding: 6px 4px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: middle;
+    }
+  </style>
   <!-- Load global configuration for API endpoints -->
   <script src="config.js"></script>
 </head>
@@ -169,6 +213,8 @@
             <button id="saveBtn" type="submit" class="submit-btn">Save Account</button>
           </div>
         </form>
+        <!-- Section to display related work orders and their items. It remains empty for new accounts. -->
+        <div id="accountWorkOrders" class="work-orders-container" style="margin-top: 16px;"></div>
       </div>
     </div>
   </div>
@@ -201,6 +247,11 @@
       const accountForm = document.getElementById("accountForm");
       const formMode = document.getElementById("formMode");
       const editRowId = document.getElementById("editRowId");
+
+      // Placeholder for the work orders container element. This will be assigned
+      // later once the DOM is fully parsed. Declaring it here ensures the
+      // variable is in scope for openModal and closeModal.
+      let accountOrdersEl;
 
       // Base URL for accounts derived from the global configuration
       const API_BASE = window.APP_CONFIG.POSTGRES_API_BASE + "/accounts";
@@ -535,6 +586,14 @@
         document.getElementById("saveBtn").classList.toggle("hidden", isView);
 
         modal.classList.remove("hidden");
+
+        // Load related work orders if editing or viewing. For new records there
+        // are none, so we clear the container.
+        if (mode === "create") {
+          loadAccountWorkOrders(null);
+        } else {
+          loadAccountWorkOrders(row?.id);
+        }
       }
 
       function closeModal() {
@@ -544,6 +603,11 @@
         editRowId.value = "";
         deleteBtn.classList.add("hidden");
         document.getElementById("saveBtn").classList.remove("hidden");
+
+        // Clear related work orders when closing the modal
+        if (typeof accountOrdersEl !== 'undefined') {
+          accountOrdersEl.innerHTML = "";
+        }
       }
 
       async function handleSave(e) {
@@ -685,6 +749,201 @@
           .replaceAll(">", "&gt;")
           .replaceAll('"', "&quot;")
           .replaceAll("'", "&#039;");
+      }
+
+      /**
+       * --- Related Work Orders Logic ---
+       *
+       * When viewing or editing an account, display all work orders linked
+       * to that account and allow the user to expand each one to view the
+       * underlying work items. Totals and gross profit (ANF) values are
+       * computed on the fly. This section mirrors the behaviour of the
+       * standalone Work Orders page but is scoped to a single account.
+       */
+
+      // Container element to insert work orders into
+      accountOrdersEl = document.getElementById("accountWorkOrders");
+
+      // Field maps for extracting values from work order and work item objects.
+      const ACC_ORDER_FIELD_MAP = {
+        id: ["WorkOrderId", "WorkOrderID", "Id", "ID"],
+        entityRefNo: ["EntityRefNo", "RefNo", "OrderNumber"],
+        created: ["CreateDateTime", "CreatedDate", "CreatedOn", "DateCreated"],
+        updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"],
+        currency: ["Currency"],
+      };
+
+      const ACC_ITEM_FIELD_MAP = {
+        service: ["Service", "ServiceName", "ServiceCode"],
+        product: ["Product", "ProductName", "ProductCode"],
+        region: ["Region", "RegionName", "RegionCode"],
+        quantity: ["Quantity", "Qty", "QtyOrdered"],
+        unitPrice: ["UnitPrice", "PricePerUnit", "Price"],
+        estimatedCost: ["EstimatedCost", "EstCost", "Cost"],
+      };
+
+      /**
+       * Get the first non‑empty value from a list of possible keys on an object.
+       * @param {object} obj
+       * @param {string[]} keys
+       */
+      function accGetFirst(obj, keys) {
+        for (const key of keys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
+            return obj[key];
+          }
+        }
+        return undefined;
+      }
+
+      /**
+       * Format numbers consistently with two decimals; return a dash if blank.
+       * @param {number|string} n
+       */
+      function accFormatNumber(n) {
+        const num = Number(n);
+        if (isNaN(num)) return "-";
+        return num.toLocaleString("en-ZA", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+      }
+
+      /**
+       * Format dates into a short localised format; return dash if invalid.
+       * @param {string|Date} value
+       */
+      function accFormatDate(value) {
+        if (!value) return "-";
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return String(value);
+        return d.toLocaleDateString("en-ZA", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        });
+      }
+
+      /**
+       * Fetch and display all work orders linked to an account. When accountId is
+       * null or undefined, the container is cleared. Otherwise, the section
+       * fetches the relevant orders and their items, then renders them.
+       * @param {string|number|null} accountId
+       */
+      async function loadAccountWorkOrders(accountId) {
+        // Clear container if no account id (for new records)
+        if (!accountId) {
+          accountOrdersEl.innerHTML = "";
+          return;
+        }
+        accountOrdersEl.innerHTML = '<p>Loading work orders…</p>';
+        try {
+          const res = await fetch(`${window.APP_CONFIG.POSTGRES_API_BASE}/work-orders?accountId=${encodeURIComponent(accountId)}`);
+          const data = await res.json();
+          const orders = Array.isArray(data.rows) ? data.rows : data;
+          if (!orders.length) {
+            accountOrdersEl.innerHTML = '<p class="muted-text">No work orders for this account.</p>';
+            return;
+          }
+          // Fetch all items for each order concurrently
+          const ordersWithItems = await Promise.all(
+            orders.map(async (order) => {
+              const orderId = accGetFirst(order, ACC_ORDER_FIELD_MAP.id);
+              let items = [];
+              try {
+                if (orderId !== undefined) {
+                  const wiRes = await fetch(`${window.APP_CONFIG.POSTGRES_API_BASE}/work-items?workOrderId=${encodeURIComponent(orderId)}`);
+                  const wiData = await wiRes.json();
+                  items = Array.isArray(wiData.rows) ? wiData.rows : wiData;
+                }
+              } catch (err) {
+                console.error('Failed to load items for order', orderId, err);
+              }
+              return { order, items };
+            })
+          );
+          buildAccountWorkOrders(ordersWithItems);
+        } catch (err) {
+          console.error(err);
+          accountOrdersEl.innerHTML = '<p>Error loading work orders.</p>';
+        }
+      }
+
+      /**
+       * Build the HTML for the work orders section.
+       * @param {{order:object, items:object[]}[]} ordersWithItems
+       */
+      function buildAccountWorkOrders(ordersWithItems) {
+        if (!ordersWithItems || !ordersWithItems.length) {
+          accountOrdersEl.innerHTML = '<p class="muted-text">No work orders for this account.</p>';
+          return;
+        }
+        let html = '<h3>Work Orders</h3>';
+        ordersWithItems.forEach(({ order, items }) => {
+          const id = accGetFirst(order, ACC_ORDER_FIELD_MAP.id) || '-';
+          const ref = accGetFirst(order, ACC_ORDER_FIELD_MAP.entityRefNo) || '';
+          const created = accFormatDate(accGetFirst(order, ACC_ORDER_FIELD_MAP.created));
+          const updated = accFormatDate(accGetFirst(order, ACC_ORDER_FIELD_MAP.updated));
+          // Compute totals
+          let total = 0;
+          let anf = 0;
+          const rows = items.map((item) => {
+            const qty = Number(accGetFirst(item, ACC_ITEM_FIELD_MAP.quantity)) || 0;
+            const unit = Number(accGetFirst(item, ACC_ITEM_FIELD_MAP.unitPrice)) || 0;
+            const cost = Number(accGetFirst(item, ACC_ITEM_FIELD_MAP.estimatedCost)) || 0;
+            const lineTotal = qty * unit;
+            const gross = lineTotal - cost;
+            total += lineTotal;
+            anf += gross;
+            return `<tr>
+              <td>${escapeHtml(accGetFirst(item, ACC_ITEM_FIELD_MAP.service) || '-') }</td>
+              <td>${escapeHtml(accGetFirst(item, ACC_ITEM_FIELD_MAP.product) || '-') }</td>
+              <td>${escapeHtml(accGetFirst(item, ACC_ITEM_FIELD_MAP.region) || '-') }</td>
+              <td class="num">${accFormatNumber(qty)}</td>
+              <td class="num">${accFormatNumber(unit)}</td>
+              <td class="num">${accFormatNumber(lineTotal)}</td>
+              <td class="num">${ cost ? accFormatNumber(cost) : '-' }</td>
+              <td class="num">${accFormatNumber(gross)}</td>
+              <td class="num">${ lineTotal ? accFormatNumber((gross/lineTotal)*100) + '%' : '-' }</td>
+            </tr>`;
+          });
+          const totalCell = total ? accFormatNumber(total) : '-';
+          const anfCell = anf ? accFormatNumber(anf) : '-';
+          html += `<details>
+            <summary>
+              <div>
+                <strong>${escapeHtml(String(id))}</strong>${ ref ? `<span class="muted-text"> · ${escapeHtml(ref)}</span>` : '' }
+                <br/>
+                <span class="muted-text">Created: ${created} | Updated: ${updated}</span>
+              </div>
+              <div style="text-align:right;">
+                <span class="num">Total: ${totalCell}</span><br/>
+                <span class="num">ANF: ${anfCell}</span>
+              </div>
+            </summary>
+            <div style="overflow-x:auto;">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Service</th>
+                    <th>Product</th>
+                    <th>Region</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Unit Price</th>
+                    <th class="num">Line Total</th>
+                    <th class="num">Est Cost</th>
+                    <th class="num">ANF</th>
+                    <th class="num">Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows.join('') || '<tr><td colspan="9">No items found.</td></tr>'}
+                </tbody>
+              </table>
+            </div>
+          </details>`;
+        });
+        accountOrdersEl.innerHTML = html;
       }
 
       loadData();

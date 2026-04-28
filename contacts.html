@@ -730,6 +730,44 @@
 
 
 
+      function getLinkedObjectId(obj, explicitKeys) {
+        for (const key of explicitKeys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
+        }
+        const dynamicKey = Object.keys(obj).find(key => {
+          const normal = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+          return normal === "workorderid" || normal === "workordersid";
+        });
+        return dynamicKey ? obj[dynamicKey] : "";
+      }
+
+      function getLinkedOrderId(order) {
+        return getLinkedObjectId(order, ["work_order_id", "WorkOrderId", "WorkOrderID", "workOrderId", "Id", "ID", "id"]);
+      }
+
+      function getLinkedItemOrderId(item) {
+        return getLinkedObjectId(item, ["work_order_id", "WorkOrderId", "WorkOrderID", "workOrderId"]);
+      }
+
+      async function fetchItemsForLinkedOrder(orderId, allItems) {
+        const matched = allItems.filter(item => String(getLinkedItemOrderId(item)) === String(orderId));
+        if (matched.length) return matched;
+
+        try {
+          const itemResult = await fetchJsonFrom(
+            [`${POSTGRES_ROOT}/work_items?work_order_id=eq.${encodeURIComponent(orderId)}`],
+            "Failed to load work items"
+          );
+          return rowsFromResult(itemResult);
+        } catch (err) {
+          console.error(err);
+          return [];
+        }
+      }
+
+
+
+
       async function loadContactWorkOrders(recordId) {
         const container = document.getElementById("contactWorkOrders");
         if (!container) return;
@@ -750,22 +788,16 @@
             container.innerHTML = '<h3>Work Orders</h3><p class="muted-text">No linked work orders found.</p>';
             return;
           }
+          let allItems = [];
+          try {
+            allItems = rowsFromResult(await fetchJsonFrom(WORK_ITEM_READ_ENDPOINTS, "Failed to load work items"));
+          } catch (err) {
+            console.error(err);
+          }
+
           const ordersWithItems = await Promise.all(orders.map(async order => {
-            const orderId = order.WorkOrderId ?? order.work_order_id ?? order.workOrderId ?? order.Id ?? order.ID;
-            let items = [];
-            if (orderId !== undefined && orderId !== null && orderId !== "") {
-              try {
-                const itemResult = await fetchJsonFrom(
-                  WORK_ITEM_READ_ENDPOINTS,
-                  "Failed to load work items"
-                );
-                items = rowsFromResult(itemResult).filter(item =>
-                  String(item.WorkOrderId ?? item.work_order_id ?? item.workOrderId ?? "") === String(orderId)
-                );
-              } catch (err) {
-                console.error(err);
-              }
-            }
+            const orderId = getLinkedOrderId(order);
+            const items = orderId ? await fetchItemsForLinkedOrder(orderId, allItems) : [];
             return { order, items };
           }));
           container.innerHTML = renderLinkedWorkOrders(ordersWithItems);
@@ -778,7 +810,7 @@
       function renderLinkedWorkOrders(ordersWithItems) {
         let html = '<h3>Work Orders</h3>';
         ordersWithItems.forEach(({ order, items }) => {
-          const orderId = order.WorkOrderId ?? order.work_order_id ?? order.workOrderId ?? order.Id ?? order.ID ?? '-';
+          const orderId = getLinkedOrderId(order) || '-';
           const ref = order.EntityRefNo ?? order.entity_ref_no ?? order.RefNo ?? '';
           const created = formatDate(order.CreateDateTime ?? order.created_at ?? order.CreatedDate ?? order.CreatedOn);
           const total = Number(order.Total ?? order.total ?? 0);

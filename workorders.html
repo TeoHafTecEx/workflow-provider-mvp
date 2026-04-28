@@ -65,13 +65,13 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
     try {
       const orders = rowsFromResult(await fetchJson(WORK_ORDERS_URL));
       const items = rowsFromResult(await fetchJson(WORK_ITEMS_URL));
-      const ordersWithItems = orders.map(order => {
+      const ordersWithItems = await Promise.all(orders.map(async order => {
         const orderId = getOrderId(order);
         return {
           order,
-          items: items.filter(item => String(getItemOrderId(item)) === String(orderId))
+          items: await fetchWorkItemsForOrder(orderId, items)
         };
-      });
+      }));
       buildTable(ordersWithItems);
     } catch(err) {
       table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
@@ -96,8 +96,32 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
     return [];
   }
 
-  function getOrderId(order){ return order.work_order_id ?? order.WorkOrderId ?? order.WorkOrderID ?? order.id ?? order.Id ?? order.ID ?? ''; }
-  function getItemOrderId(item){ return item.work_order_id ?? item.WorkOrderId ?? item.WorkOrderID ?? item.workOrderId ?? ''; }
+  async function fetchWorkItemsForOrder(orderId, allItems){
+    const fromAll = allItems.filter(item => String(getItemOrderId(item)) === String(orderId));
+    if (fromAll.length) return fromAll;
+
+    try {
+      const filtered = rowsFromResult(await fetchJson(`${WORK_ITEMS_URL}?work_order_id=eq.${encodeURIComponent(orderId)}`));
+      if (filtered.length) return filtered;
+    } catch (err) {
+      console.warn('Filtered work item fetch failed for work order', orderId, err);
+    }
+
+    return [];
+  }
+
+  function getObjectId(obj, explicitKeys){
+    for (const key of explicitKeys) {
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+    }
+    const dynamicKey = Object.keys(obj).find(key => {
+      const normal = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+      return normal === 'workorderid' || normal === 'workordersid';
+    });
+    return dynamicKey ? obj[dynamicKey] : '';
+  }
+  function getOrderId(order){ return getObjectId(order, ['work_order_id','WorkOrderId','WorkOrderID','workOrderId','id','Id','ID']); }
+  function getItemOrderId(item){ return getObjectId(item, ['work_order_id','WorkOrderId','WorkOrderID','workOrderId']); }
   function getVal(obj, keys, fallback=''){
     for (const key of keys) if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
     return fallback;

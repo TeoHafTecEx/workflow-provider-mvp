@@ -309,10 +309,10 @@
           const emailVal = prompt("Enter contact email (optional):") || "";
           try {
             const payload = {
-              ContactName: firstName,
-              ContactSurname: surname,
-              ContactEmail: emailVal,
-              AccountId: accountId
+              name: firstName,
+              surname: surname,
+              email: emailVal,
+              account_id: Number(accountId)
             };
             await fetch(`${POSTGRES_API}/contacts`, {
               method: "POST",

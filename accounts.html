@@ -223,14 +223,10 @@
         `${API_ROOT}/accounts`
       ].filter(Boolean);
       const WORK_ORDER_READ_ENDPOINTS = [
-        `${API_ROOT}/api_work_orders`,
-        `${POSTGRES_ROOT}/work-orders`,
-        `${API_ROOT}/work-orders`
+        `${POSTGRES_ROOT}/work_orders`
       ].filter(Boolean);
       const WORK_ITEM_READ_ENDPOINTS = [
-        `${API_ROOT}/api_work_items`,
-        `${POSTGRES_ROOT}/work-items`,
-        `${API_ROOT}/work-items`
+        `${POSTGRES_ROOT}/work_items`
       ].filter(Boolean);
       let rawRows = [];
       let filteredRows = [];

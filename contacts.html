@@ -5,52 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Contacts – TGC CRM</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- Page specific overrides for nested work order display -->
-  <style>
-    /* Align numeric columns in work order tables */
-    .num {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    /* Muted text for secondary information (e.g., reference numbers) */
-    .muted-text {
-      color: var(--muted);
-      font-size: 12px;
-    }
-    /* Styling for the work orders section inside the contact modal */
-    .work-orders-container details {
-      margin-bottom: 8px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-    }
-    .work-orders-container summary {
-      cursor: pointer;
-      font-weight: 700;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      list-style: none;
-    }
-    .work-orders-container summary::-webkit-details-marker {
-      display: none;
-    }
-    .work-orders-container table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 8px;
-    }
-    .work-orders-container th,
-    .work-orders-container td {
-      padding: 6px 4px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-  </style>
   <!-- Load global configuration for API endpoints -->
   <script src="config.js"></script>
+  <style>
+    .work-orders-container details { margin: 10px 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .work-orders-container summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 16px; align-items: center; font-weight: 700; }
+    .work-orders-container summary::-webkit-details-marker { display: none; }
+    .work-orders-container table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .work-orders-container th, .work-orders-container td { padding: 8px; border-bottom: 1px solid var(--border); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  </style>
 </head>
 <body>
   <div id="crm-page" data-theme="light">
@@ -223,8 +187,7 @@
             <button id="saveBtn" type="submit" class="submit-btn">Save Contact</button>
           </div>
         </form>
-        <!-- Section to display related work orders for this contact -->
-        <div id="contactWorkOrders" class="work-orders-container" style="margin-top: 16px;"></div>
+        <div id="contactWorkOrders" class="work-orders-container" style="margin-top:16px;"></div>
       </div>
     </div>
   </div>
@@ -258,13 +221,27 @@
       const formMode = document.getElementById("formMode");
       const editRowId = document.getElementById("editRowId");
 
-      // Placeholder for the work orders container element associated with a contact. It
-      // will be assigned once the modal is opened. Declaring it up here keeps
-      // the variable in scope for openModal and closeModal.
-      let contactOrdersEl;
-
-      // Base URL for contacts derived from the global configuration
-      const API_BASE = window.APP_CONFIG.POSTGRES_API_BASE + "/contacts";
+      // Base URL for contacts derived from the global configuration.
+      // The read endpoint follows the same pattern used by quotes.html: /api_contacts.
+      // Fallbacks are kept so this page also works with the older /contacts route.
+      const API_ROOT = window.APP_CONFIG.API_BASE || window.APP_CONFIG.POSTGRES_API_BASE || "";
+      const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || API_ROOT;
+      const API_BASE = POSTGRES_ROOT + "/contacts";
+      const CONTACT_READ_ENDPOINTS = [
+        `${API_ROOT}/api_contacts`,
+        `${POSTGRES_ROOT}/contacts`,
+        `${API_ROOT}/contacts`
+      ].filter(Boolean);
+      const WORK_ORDER_READ_ENDPOINTS = [
+        `${API_ROOT}/api_work_orders`,
+        `${POSTGRES_ROOT}/work-orders`,
+        `${API_ROOT}/work-orders`
+      ].filter(Boolean);
+      const WORK_ITEM_READ_ENDPOINTS = [
+        `${API_ROOT}/api_work_items`,
+        `${POSTGRES_ROOT}/work-items`,
+        `${API_ROOT}/work-items`
+      ].filter(Boolean);
       let rawRows = [];
       let filteredRows = [];
 
@@ -313,19 +290,44 @@
         table.innerHTML = "<thead><tr><th>Loading...</th></tr></thead>";
 
         try {
-          const res = await fetch(`${API_BASE}?page=1&size=100`);
-          const result = await res.json();
+          const result = await fetchJsonFrom(
+            CONTACT_READ_ENDPOINTS,
+            "Failed to load contacts"
+          );
 
-          if (!res.ok || !result.ok) {
-            throw new Error(result.error || "Failed to load contacts");
-          }
-
-          rawRows = (result.rows || []).map(normalizeRow);
+          rawRows = rowsFromResult(result).map(normalizeRow);
           applyFiltersAndRender();
         } catch (err) {
           table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
           console.error(err);
         }
+      }
+
+      async function fetchJsonFrom(urls, fallbackMessage) {
+        const errors = [];
+        for (const url of urls) {
+          try {
+            const res = await fetch(url);
+            const text = await res.text();
+            let result;
+            try {
+              result = text ? JSON.parse(text) : {};
+            } catch (_) {
+              throw new Error("Endpoint returned HTML or another non-JSON response");
+            }
+            if (!res.ok || result.ok === false) {
+              throw new Error(result.error || `${res.status} ${res.statusText}`);
+            }
+            return result;
+          } catch (err) {
+            errors.push(`${url}: ${err.message}`);
+          }
+        }
+        throw new Error(`${fallbackMessage}. ${errors.join(" | ")}`);
+      }
+
+      function rowsFromResult(result) {
+        return Array.isArray(result?.rows) ? result.rows : Array.isArray(result) ? result : [];
       }
 
       function normalizeRow(row) {
@@ -592,14 +594,7 @@
         deleteBtn.classList.toggle("hidden", !isEdit);
         document.getElementById("saveBtn").classList.toggle("hidden", isView);
 
-        // Load related work orders if editing or viewing this contact. New
-        // contacts won't have work orders yet, so clear the container.
-        if (mode === "create") {
-          loadContactWorkOrders(null);
-        } else {
-          loadContactWorkOrders(row?.id);
-        }
-
+        loadContactWorkOrders(mode === "create" ? null : row?.id);
         modal.classList.remove("hidden");
       }
 
@@ -610,11 +605,8 @@
         editRowId.value = "";
         deleteBtn.classList.add("hidden");
         document.getElementById("saveBtn").classList.remove("hidden");
-
-        // Clear work orders list when closing modal
-        if (typeof contactOrdersEl !== 'undefined') {
-          contactOrdersEl.innerHTML = "";
-        }
+        const linkedOrders = document.getElementById("contactWorkOrders");
+        if (linkedOrders) linkedOrders.innerHTML = "";
       }
 
       async function handleSave(e) {
@@ -740,184 +732,103 @@
           .replaceAll("'", "&#039;");
       }
 
-      /**
-       * --- Related Work Orders Logic (Contacts) ---
-       *
-       * When viewing or editing a contact, this section fetches all work orders
-       * linked to that contact and renders them in an expandable list. Each
-       * work order displays summary information and computed totals, and the
-       * underlying items are shown in a nested table.
-       */
 
-      // Assign the work orders container for contacts. We reuse the outer
-      // variable declared near the top of the script.
-      contactOrdersEl = document.getElementById("contactWorkOrders");
 
-      // Field maps for extracting values from work order and item objects.
-      const CONT_ORDER_FIELD_MAP = {
-        id: ["WorkOrderId", "WorkOrderID", "Id", "ID"],
-        entityRefNo: ["EntityRefNo", "RefNo", "OrderNumber"],
-        created: ["CreateDateTime", "CreatedDate", "CreatedOn", "DateCreated"],
-        updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"],
-        currency: ["Currency"],
-      };
-
-      const CONT_ITEM_FIELD_MAP = {
-        service: ["Service", "ServiceName", "ServiceCode"],
-        product: ["Product", "ProductName", "ProductCode"],
-        region: ["Region", "RegionName", "RegionCode"],
-        quantity: ["Quantity", "Qty", "QtyOrdered"],
-        unitPrice: ["UnitPrice", "PricePerUnit", "Price"],
-        estimatedCost: ["EstimatedCost", "EstCost", "Cost"],
-      };
-
-      // Helpers for extracting and formatting values.
-      function contGetFirst(obj, keys) {
-        for (const key of keys) {
-          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
-            return obj[key];
-          }
-        }
-        return undefined;
-      }
-
-      function contFormatNumber(n) {
-        const num = Number(n);
-        if (isNaN(num)) return "-";
-        return num.toLocaleString("en-ZA", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        });
-      }
-
-      function contFormatDate(value) {
-        if (!value) return "-";
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return String(value);
-        return d.toLocaleDateString("en-ZA", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        });
-      }
-
-      /**
-       * Fetch and render work orders linked to a contact. If contactId is null,
-       * the container is cleared. Otherwise it loads the relevant orders and
-       * their items and calls buildContactWorkOrders to render.
-       * @param {string|number|null} contactId
-       */
-      async function loadContactWorkOrders(contactId) {
-        if (!contactId) {
-          contactOrdersEl.innerHTML = "";
+      async function loadContactWorkOrders(recordId) {
+        const container = document.getElementById("contactWorkOrders");
+        if (!container) return;
+        if (!recordId) {
+          container.innerHTML = "";
           return;
         }
-        contactOrdersEl.innerHTML = '<p>Loading work orders…</p>';
+        container.innerHTML = '<p class="muted-text">Loading work orders...</p>';
         try {
-          const res = await fetch(`${window.APP_CONFIG.POSTGRES_API_BASE}/work-orders?contactId=${encodeURIComponent(contactId)}`);
-          const data = await res.json();
-          const orders = Array.isArray(data.rows) ? data.rows : data;
+          const orderResult = await fetchJsonFrom(
+            WORK_ORDER_READ_ENDPOINTS,
+            "Failed to load work orders"
+          );
+          const orders = rowsFromResult(orderResult).filter(order =>
+            String(order.ContactId ?? order.contact_id ?? order.contactId ?? "") === String(recordId)
+          );
           if (!orders.length) {
-            contactOrdersEl.innerHTML = '<p class="muted-text">No work orders for this contact.</p>';
+            container.innerHTML = '<h3>Work Orders</h3><p class="muted-text">No linked work orders found.</p>';
             return;
           }
-          const ordersWithItems = await Promise.all(
-            orders.map(async (order) => {
-              const orderId = contGetFirst(order, CONT_ORDER_FIELD_MAP.id);
-              let items = [];
+          const ordersWithItems = await Promise.all(orders.map(async order => {
+            const orderId = order.WorkOrderId ?? order.work_order_id ?? order.workOrderId ?? order.Id ?? order.ID;
+            let items = [];
+            if (orderId !== undefined && orderId !== null && orderId !== "") {
               try {
-                if (orderId !== undefined) {
-                  const wiRes = await fetch(`${window.APP_CONFIG.POSTGRES_API_BASE}/work-items?workOrderId=${encodeURIComponent(orderId)}`);
-                  const wiData = await wiRes.json();
-                  items = Array.isArray(wiData.rows) ? wiData.rows : wiData;
-                }
+                const itemResult = await fetchJsonFrom(
+                  WORK_ITEM_READ_ENDPOINTS,
+                  "Failed to load work items"
+                );
+                items = rowsFromResult(itemResult).filter(item =>
+                  String(item.WorkOrderId ?? item.work_order_id ?? item.workOrderId ?? "") === String(orderId)
+                );
               } catch (err) {
-                console.error('Failed to load items for order', orderId, err);
+                console.error(err);
               }
-              return { order, items };
-            })
-          );
-          buildContactWorkOrders(ordersWithItems);
+            }
+            return { order, items };
+          }));
+          container.innerHTML = renderLinkedWorkOrders(ordersWithItems);
         } catch (err) {
           console.error(err);
-          contactOrdersEl.innerHTML = '<p>Error loading work orders.</p>';
+          container.innerHTML = `<h3>Work Orders</h3><p>Error: ${escapeHtml(err.message)}</p>`;
         }
       }
 
-      /**
-       * Render the list of work orders with expandable work item tables.
-       * @param {{order:object, items:object[]}[]} ordersWithItems
-       */
-      function buildContactWorkOrders(ordersWithItems) {
-        if (!ordersWithItems || !ordersWithItems.length) {
-          contactOrdersEl.innerHTML = '<p class="muted-text">No work orders for this contact.</p>';
-          return;
-        }
+      function renderLinkedWorkOrders(ordersWithItems) {
         let html = '<h3>Work Orders</h3>';
         ordersWithItems.forEach(({ order, items }) => {
-          const id = contGetFirst(order, CONT_ORDER_FIELD_MAP.id) || '-';
-          const ref = contGetFirst(order, CONT_ORDER_FIELD_MAP.entityRefNo) || '';
-          const created = contFormatDate(contGetFirst(order, CONT_ORDER_FIELD_MAP.created));
-          const updated = contFormatDate(contGetFirst(order, CONT_ORDER_FIELD_MAP.updated));
-          let total = 0;
-          let anf = 0;
-          const rows = items.map((item) => {
-            const qty = Number(contGetFirst(item, CONT_ITEM_FIELD_MAP.quantity)) || 0;
-            const unit = Number(contGetFirst(item, CONT_ITEM_FIELD_MAP.unitPrice)) || 0;
-            const cost = Number(contGetFirst(item, CONT_ITEM_FIELD_MAP.estimatedCost)) || 0;
-            const lineTotal = qty * unit;
-            const gross = lineTotal - cost;
-            total += lineTotal;
-            anf += gross;
+          const orderId = order.WorkOrderId ?? order.work_order_id ?? order.workOrderId ?? order.Id ?? order.ID ?? '-';
+          const ref = order.EntityRefNo ?? order.entity_ref_no ?? order.RefNo ?? '';
+          const created = formatDate(order.CreateDateTime ?? order.created_at ?? order.CreatedDate ?? order.CreatedOn);
+          const total = Number(order.Total ?? order.total ?? 0);
+          const anf = Number(order.ANF ?? order.anf ?? order.GrossProfit ?? order.gross_profit ?? 0);
+          const itemRows = items.map(item => {
+            const service = item.ServiceCode ?? item.service_code ?? item.Service ?? '-';
+            const product = item.ProductCode ?? item.product_code ?? item.Product ?? '-';
+            const region = item.RegionCode ?? item.region_code ?? item.Region ?? '-';
+            const qty = Number(item.Quantity ?? item.quantity ?? 0);
+            const unit = Number(item.UnitPrice ?? item.unit_price ?? 0);
+            const lineTotal = Number(item.LineTotal ?? item.line_total ?? (qty * unit));
+            const cost = Number(item.EstimatedCost ?? item.estimated_cost ?? item.Cost ?? 0);
+            const gross = Number(item.GrossProfit ?? item.gross_profit ?? (lineTotal - cost));
+            const margin = Number(item.GrossMarginPct ?? item.gross_margin_pct ?? (lineTotal ? (gross / lineTotal) * 100 : 0));
             return `<tr>
-              <td>${escapeHtml(contGetFirst(item, CONT_ITEM_FIELD_MAP.service) || '-') }</td>
-              <td>${escapeHtml(contGetFirst(item, CONT_ITEM_FIELD_MAP.product) || '-') }</td>
-              <td>${escapeHtml(contGetFirst(item, CONT_ITEM_FIELD_MAP.region) || '-') }</td>
-              <td class="num">${contFormatNumber(qty)}</td>
-              <td class="num">${contFormatNumber(unit)}</td>
-              <td class="num">${contFormatNumber(lineTotal)}</td>
-              <td class="num">${ cost ? contFormatNumber(cost) : '-' }</td>
-              <td class="num">${contFormatNumber(gross)}</td>
-              <td class="num">${ lineTotal ? contFormatNumber((gross/lineTotal)*100) + '%' : '-' }</td>
+              <td>${escapeHtml(service)}</td>
+              <td>${escapeHtml(product)}</td>
+              <td>${escapeHtml(region)}</td>
+              <td class="num">${formatNumber(qty)}</td>
+              <td class="num">${formatNumber(unit)}</td>
+              <td class="num">${formatNumber(lineTotal)}</td>
+              <td class="num">${formatNumber(cost)}</td>
+              <td class="num">${formatNumber(gross)}</td>
+              <td class="num">${lineTotal ? formatNumber(margin) + '%' : '-'}</td>
             </tr>`;
-          });
-          const totalCell = total ? contFormatNumber(total) : '-';
-          const anfCell = anf ? contFormatNumber(anf) : '-';
+          }).join('');
           html += `<details>
             <summary>
-              <div>
-                <strong>${escapeHtml(String(id))}</strong>${ ref ? `<span class="muted-text"> · ${escapeHtml(ref)}</span>` : '' }
-                <br/>
-                <span class="muted-text">Created: ${created} | Updated: ${updated}</span>
-              </div>
-              <div style="text-align:right;">
-                <span class="num">Total: ${totalCell}</span><br/>
-                <span class="num">ANF: ${anfCell}</span>
-              </div>
+              <span>Work Order #${escapeHtml(orderId)}${ref ? ` <span class="muted-text">${escapeHtml(ref)}</span>` : ''}<br><span class="muted-text">Created: ${created}</span></span>
+              <span class="num">Total: ${formatNumber(total)}<br>ANF: ${formatNumber(anf)}</span>
             </summary>
             <div style="overflow-x:auto;">
               <table>
-                <thead>
-                  <tr>
-                    <th>Service</th>
-                    <th>Product</th>
-                    <th>Region</th>
-                    <th class="num">Qty</th>
-                    <th class="num">Unit Price</th>
-                    <th class="num">Line Total</th>
-                    <th class="num">Est Cost</th>
-                    <th class="num">ANF</th>
-                    <th class="num">Margin %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${rows.join('') || '<tr><td colspan="9">No items found.</td></tr>'}
-                </tbody>
+                <thead><tr><th>Service</th><th>Product</th><th>Region</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th><th class="num">Cost</th><th class="num">ANF</th><th class="num">Margin</th></tr></thead>
+                <tbody>${itemRows || '<tr><td colspan="9">No work items found.</td></tr>'}</tbody>
               </table>
             </div>
           </details>`;
         });
-        contactOrdersEl.innerHTML = html;
+        return html;
+      }
+
+      function formatNumber(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '-';
+        return n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
 
       loadData();

@@ -286,7 +286,7 @@
 
         try {
           const result = await fetchJsonFrom(
-            ACCOUNT_READ_ENDPOINTS.map(url => `${url}?page=1&size=100`),
+            ACCOUNT_READ_ENDPOINTS,
             "Failed to load accounts"
           );
 
@@ -755,7 +755,7 @@
         container.innerHTML = '<p class="muted-text">Loading work orders...</p>';
         try {
           const orderResult = await fetchJsonFrom(
-            WORK_ORDER_READ_ENDPOINTS.map(url => `${url}?accountId=${encodeURIComponent(recordId)}&account_id=${encodeURIComponent(recordId)}`),
+            WORK_ORDER_READ_ENDPOINTS,
             "Failed to load work orders"
           );
           const orders = rowsFromResult(orderResult).filter(order =>
@@ -771,7 +771,7 @@
             if (orderId !== undefined && orderId !== null && orderId !== "") {
               try {
                 const itemResult = await fetchJsonFrom(
-                  WORK_ITEM_READ_ENDPOINTS.map(url => `${url}?workOrderId=${encodeURIComponent(orderId)}&work_order_id=${encodeURIComponent(orderId)}`),
+                  WORK_ITEM_READ_ENDPOINTS,
                   "Failed to load work items"
                 );
                 items = rowsFromResult(itemResult).filter(item =>

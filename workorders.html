@@ -263,7 +263,7 @@ button:hover, a.btn:hover{
     try {
       // Fetch all work orders. A page/size query is provided to limit the rows.
       const woRes = await fetch(
-        `${window.APP_CONFIG.POSTGRES_API_BASE}/work-orders?page=1&size=200`
+        `${window.APP_CONFIG.POSTGRES_API_BASE}/work-orders`
       );
       const woData = await woRes.json();
       const orders = Array.isArray(woData.rows) ? woData.rows : woData;

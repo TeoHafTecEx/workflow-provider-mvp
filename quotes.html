@@ -217,7 +217,11 @@
           return { rows: [] };
         })
       ]).then(([pricingResult, accountsResult, contactsResult]) => {
-        const pricingRows = Array.isArray(pricingResult?.rows) ? pricingResult.rows : [];
+        const pricingRows = Array.isArray(pricingResult?.rows)
+          ? pricingResult.rows
+          : Array.isArray(pricingResult)
+          ? pricingResult
+          : [];
         // Normalize pricing rows into the format used by the quoting calculator
         PRICE_TABLE = pricingRows.map(row => ({
           product: row.product_code ?? row.ProductCode,

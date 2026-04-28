@@ -235,8 +235,17 @@
           max4: Number(row.tier_4_min_qty ?? row.Tier4MinQty ?? 0),
           currency: row.currency ?? row.Currency ?? "USD"
         }));
-        ACCOUNTS = Array.isArray(accountsResult?.rows) ? accountsResult.rows : [];
-        CONTACTS = Array.isArray(contactsResult?.rows) ? contactsResult.rows : [];
+        ACCOUNTS = Array.isArray(accountsResult?.rows)
+          ? accountsResult.rows
+          : Array.isArray(accountsResult)
+          ? accountsResult
+          : [];
+        
+        CONTACTS = Array.isArray(contactsResult?.rows)
+          ? contactsResult.rows
+          : Array.isArray(contactsResult)
+          ? contactsResult
+          : [];
         init();
       });
 
@@ -266,10 +275,17 @@
           const name = prompt("Enter company name:");
           if (!name) return;
           try {
-            const payload = { AccountName: name, AccountStatus: "Active" };
+            const payload = {
+              name: name,
+              status: "Active"
+            };
+            
             await fetch(`${POSTGRES_API}/accounts`, {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "Content-Type": "application/json",
+                "Prefer": "return=representation"
+              },
               body: JSON.stringify(payload)
             });
             alert("Company created.");

@@ -5,52 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Accounts – TGC CRM</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- Page specific overrides for nested work order display -->
-  <style>
-    /* Align numeric columns in work order tables */
-    .num {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      white-space: nowrap;
-    }
-    /* Muted text for secondary information (e.g., reference numbers) */
-    .muted-text {
-      color: var(--muted);
-      font-size: 12px;
-    }
-    /* Styling for the work orders section inside the account modal */
-    .work-orders-container details {
-      margin-bottom: 8px;
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 10px;
-    }
-    .work-orders-container summary {
-      cursor: pointer;
-      font-weight: 700;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      list-style: none;
-    }
-    .work-orders-container summary::-webkit-details-marker {
-      display: none;
-    }
-    .work-orders-container table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 8px;
-    }
-    .work-orders-container th,
-    .work-orders-container td {
-      padding: 6px 4px;
-      border-bottom: 1px solid var(--border);
-      vertical-align: middle;
-    }
-  </style>
   <!-- Load global configuration for API endpoints -->
   <script src="config.js"></script>
+  <style>
+    .work-orders-container details { margin: 10px 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
+    .work-orders-container summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 16px; align-items: center; font-weight: 700; }
+    .work-orders-container summary::-webkit-details-marker { display: none; }
+    .work-orders-container table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    .work-orders-container th, .work-orders-container td { padding: 8px; border-bottom: 1px solid var(--border); }
+    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  </style>
 </head>
 <body>
   <div id="crm-page" data-theme="light">
@@ -213,8 +177,7 @@
             <button id="saveBtn" type="submit" class="submit-btn">Save Account</button>
           </div>
         </form>
-        <!-- Section to display related work orders and their items. It remains empty for new accounts. -->
-        <div id="accountWorkOrders" class="work-orders-container" style="margin-top: 16px;"></div>
+        <div id="accountWorkOrders" class="work-orders-container" style="margin-top:16px;"></div>
       </div>
     </div>
   </div>
@@ -248,13 +211,27 @@
       const formMode = document.getElementById("formMode");
       const editRowId = document.getElementById("editRowId");
 
-      // Placeholder for the work orders container element. This will be assigned
-      // later once the DOM is fully parsed. Declaring it here ensures the
-      // variable is in scope for openModal and closeModal.
-      let accountOrdersEl;
-
-      // Base URL for accounts derived from the global configuration
-      const API_BASE = window.APP_CONFIG.POSTGRES_API_BASE + "/accounts";
+      // Base URL for accounts derived from the global configuration.
+      // The read endpoint follows the same pattern used by quotes.html: /api_accounts.
+      // Fallbacks are kept so this page also works with the older /accounts route.
+      const API_ROOT = window.APP_CONFIG.API_BASE || window.APP_CONFIG.POSTGRES_API_BASE || "";
+      const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || API_ROOT;
+      const API_BASE = POSTGRES_ROOT + "/accounts";
+      const ACCOUNT_READ_ENDPOINTS = [
+        `${API_ROOT}/api_accounts`,
+        `${POSTGRES_ROOT}/accounts`,
+        `${API_ROOT}/accounts`
+      ].filter(Boolean);
+      const WORK_ORDER_READ_ENDPOINTS = [
+        `${API_ROOT}/api_work_orders`,
+        `${POSTGRES_ROOT}/work-orders`,
+        `${API_ROOT}/work-orders`
+      ].filter(Boolean);
+      const WORK_ITEM_READ_ENDPOINTS = [
+        `${API_ROOT}/api_work_items`,
+        `${POSTGRES_ROOT}/work-items`,
+        `${API_ROOT}/work-items`
+      ].filter(Boolean);
       let rawRows = [];
       let filteredRows = [];
 
@@ -308,19 +285,44 @@
         table.innerHTML = "<thead><tr><th>Loading...</th></tr></thead>";
 
         try {
-          const res = await fetch(`${API_BASE}?page=1&size=100`);
-          const result = await res.json();
+          const result = await fetchJsonFrom(
+            ACCOUNT_READ_ENDPOINTS.map(url => `${url}?page=1&size=100`),
+            "Failed to load accounts"
+          );
 
-          if (!res.ok || !result.ok) {
-            throw new Error(result.error || "Failed to load accounts");
-          }
-
-          rawRows = (result.rows || []).map(normalizeRow);
+          rawRows = rowsFromResult(result).map(normalizeRow);
           applyFiltersAndRender();
         } catch (err) {
           table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
           console.error(err);
         }
+      }
+
+      async function fetchJsonFrom(urls, fallbackMessage) {
+        const errors = [];
+        for (const url of urls) {
+          try {
+            const res = await fetch(url);
+            const text = await res.text();
+            let result;
+            try {
+              result = text ? JSON.parse(text) : {};
+            } catch (_) {
+              throw new Error("Endpoint returned HTML or another non-JSON response");
+            }
+            if (!res.ok || result.ok === false) {
+              throw new Error(result.error || `${res.status} ${res.statusText}`);
+            }
+            return result;
+          } catch (err) {
+            errors.push(`${url}: ${err.message}`);
+          }
+        }
+        throw new Error(`${fallbackMessage}. ${errors.join(" | ")}`);
+      }
+
+      function rowsFromResult(result) {
+        return Array.isArray(result?.rows) ? result.rows : Array.isArray(result) ? result : [];
       }
 
       function normalizeRow(row) {
@@ -585,15 +587,8 @@
         deleteBtn.classList.toggle("hidden", !isEdit);
         document.getElementById("saveBtn").classList.toggle("hidden", isView);
 
+        loadAccountWorkOrders(mode === "create" ? null : row?.id);
         modal.classList.remove("hidden");
-
-        // Load related work orders if editing or viewing. For new records there
-        // are none, so we clear the container.
-        if (mode === "create") {
-          loadAccountWorkOrders(null);
-        } else {
-          loadAccountWorkOrders(row?.id);
-        }
       }
 
       function closeModal() {
@@ -603,11 +598,8 @@
         editRowId.value = "";
         deleteBtn.classList.add("hidden");
         document.getElementById("saveBtn").classList.remove("hidden");
-
-        // Clear related work orders when closing the modal
-        if (typeof accountOrdersEl !== 'undefined') {
-          accountOrdersEl.innerHTML = "";
-        }
+        const linkedOrders = document.getElementById("accountWorkOrders");
+        if (linkedOrders) linkedOrders.innerHTML = "";
       }
 
       async function handleSave(e) {
@@ -751,199 +743,103 @@
           .replaceAll("'", "&#039;");
       }
 
-      /**
-       * --- Related Work Orders Logic ---
-       *
-       * When viewing or editing an account, display all work orders linked
-       * to that account and allow the user to expand each one to view the
-       * underlying work items. Totals and gross profit (ANF) values are
-       * computed on the fly. This section mirrors the behaviour of the
-       * standalone Work Orders page but is scoped to a single account.
-       */
 
-      // Container element to insert work orders into
-      accountOrdersEl = document.getElementById("accountWorkOrders");
 
-      // Field maps for extracting values from work order and work item objects.
-      const ACC_ORDER_FIELD_MAP = {
-        id: ["WorkOrderId", "WorkOrderID", "Id", "ID"],
-        entityRefNo: ["EntityRefNo", "RefNo", "OrderNumber"],
-        created: ["CreateDateTime", "CreatedDate", "CreatedOn", "DateCreated"],
-        updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"],
-        currency: ["Currency"],
-      };
-
-      const ACC_ITEM_FIELD_MAP = {
-        service: ["Service", "ServiceName", "ServiceCode"],
-        product: ["Product", "ProductName", "ProductCode"],
-        region: ["Region", "RegionName", "RegionCode"],
-        quantity: ["Quantity", "Qty", "QtyOrdered"],
-        unitPrice: ["UnitPrice", "PricePerUnit", "Price"],
-        estimatedCost: ["EstimatedCost", "EstCost", "Cost"],
-      };
-
-      /**
-       * Get the first non‑empty value from a list of possible keys on an object.
-       * @param {object} obj
-       * @param {string[]} keys
-       */
-      function accGetFirst(obj, keys) {
-        for (const key of keys) {
-          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
-            return obj[key];
-          }
-        }
-        return undefined;
-      }
-
-      /**
-       * Format numbers consistently with two decimals; return a dash if blank.
-       * @param {number|string} n
-       */
-      function accFormatNumber(n) {
-        const num = Number(n);
-        if (isNaN(num)) return "-";
-        return num.toLocaleString("en-ZA", {
-          minimumFractionDigits: 2,
-          maximumFractionDigits: 2,
-        });
-      }
-
-      /**
-       * Format dates into a short localised format; return dash if invalid.
-       * @param {string|Date} value
-       */
-      function accFormatDate(value) {
-        if (!value) return "-";
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return String(value);
-        return d.toLocaleDateString("en-ZA", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        });
-      }
-
-      /**
-       * Fetch and display all work orders linked to an account. When accountId is
-       * null or undefined, the container is cleared. Otherwise, the section
-       * fetches the relevant orders and their items, then renders them.
-       * @param {string|number|null} accountId
-       */
-      async function loadAccountWorkOrders(accountId) {
-        // Clear container if no account id (for new records)
-        if (!accountId) {
-          accountOrdersEl.innerHTML = "";
+      async function loadAccountWorkOrders(recordId) {
+        const container = document.getElementById("accountWorkOrders");
+        if (!container) return;
+        if (!recordId) {
+          container.innerHTML = "";
           return;
         }
-        accountOrdersEl.innerHTML = '<p>Loading work orders…</p>';
+        container.innerHTML = '<p class="muted-text">Loading work orders...</p>';
         try {
-          const res = await fetch(`${window.APP_CONFIG.POSTGRES_API_BASE}/work-orders?accountId=${encodeURIComponent(accountId)}`);
-          const data = await res.json();
-          const orders = Array.isArray(data.rows) ? data.rows : data;
+          const orderResult = await fetchJsonFrom(
+            WORK_ORDER_READ_ENDPOINTS.map(url => `${url}?accountId=${encodeURIComponent(recordId)}&account_id=${encodeURIComponent(recordId)}`),
+            "Failed to load work orders"
+          );
+          const orders = rowsFromResult(orderResult).filter(order =>
+            String(order.AccountId ?? order.account_id ?? order.accountId ?? "") === String(recordId)
+          );
           if (!orders.length) {
-            accountOrdersEl.innerHTML = '<p class="muted-text">No work orders for this account.</p>';
+            container.innerHTML = '<h3>Work Orders</h3><p class="muted-text">No linked work orders found.</p>';
             return;
           }
-          // Fetch all items for each order concurrently
-          const ordersWithItems = await Promise.all(
-            orders.map(async (order) => {
-              const orderId = accGetFirst(order, ACC_ORDER_FIELD_MAP.id);
-              let items = [];
+          const ordersWithItems = await Promise.all(orders.map(async order => {
+            const orderId = order.WorkOrderId ?? order.work_order_id ?? order.workOrderId ?? order.Id ?? order.ID;
+            let items = [];
+            if (orderId !== undefined && orderId !== null && orderId !== "") {
               try {
-                if (orderId !== undefined) {
-                  const wiRes = await fetch(`${window.APP_CONFIG.POSTGRES_API_BASE}/work-items?workOrderId=${encodeURIComponent(orderId)}`);
-                  const wiData = await wiRes.json();
-                  items = Array.isArray(wiData.rows) ? wiData.rows : wiData;
-                }
+                const itemResult = await fetchJsonFrom(
+                  WORK_ITEM_READ_ENDPOINTS.map(url => `${url}?workOrderId=${encodeURIComponent(orderId)}&work_order_id=${encodeURIComponent(orderId)}`),
+                  "Failed to load work items"
+                );
+                items = rowsFromResult(itemResult).filter(item =>
+                  String(item.WorkOrderId ?? item.work_order_id ?? item.workOrderId ?? "") === String(orderId)
+                );
               } catch (err) {
-                console.error('Failed to load items for order', orderId, err);
+                console.error(err);
               }
-              return { order, items };
-            })
-          );
-          buildAccountWorkOrders(ordersWithItems);
+            }
+            return { order, items };
+          }));
+          container.innerHTML = renderLinkedWorkOrders(ordersWithItems);
         } catch (err) {
           console.error(err);
-          accountOrdersEl.innerHTML = '<p>Error loading work orders.</p>';
+          container.innerHTML = `<h3>Work Orders</h3><p>Error: ${escapeHtml(err.message)}</p>`;
         }
       }
 
-      /**
-       * Build the HTML for the work orders section.
-       * @param {{order:object, items:object[]}[]} ordersWithItems
-       */
-      function buildAccountWorkOrders(ordersWithItems) {
-        if (!ordersWithItems || !ordersWithItems.length) {
-          accountOrdersEl.innerHTML = '<p class="muted-text">No work orders for this account.</p>';
-          return;
-        }
+      function renderLinkedWorkOrders(ordersWithItems) {
         let html = '<h3>Work Orders</h3>';
         ordersWithItems.forEach(({ order, items }) => {
-          const id = accGetFirst(order, ACC_ORDER_FIELD_MAP.id) || '-';
-          const ref = accGetFirst(order, ACC_ORDER_FIELD_MAP.entityRefNo) || '';
-          const created = accFormatDate(accGetFirst(order, ACC_ORDER_FIELD_MAP.created));
-          const updated = accFormatDate(accGetFirst(order, ACC_ORDER_FIELD_MAP.updated));
-          // Compute totals
-          let total = 0;
-          let anf = 0;
-          const rows = items.map((item) => {
-            const qty = Number(accGetFirst(item, ACC_ITEM_FIELD_MAP.quantity)) || 0;
-            const unit = Number(accGetFirst(item, ACC_ITEM_FIELD_MAP.unitPrice)) || 0;
-            const cost = Number(accGetFirst(item, ACC_ITEM_FIELD_MAP.estimatedCost)) || 0;
-            const lineTotal = qty * unit;
-            const gross = lineTotal - cost;
-            total += lineTotal;
-            anf += gross;
+          const orderId = order.WorkOrderId ?? order.work_order_id ?? order.workOrderId ?? order.Id ?? order.ID ?? '-';
+          const ref = order.EntityRefNo ?? order.entity_ref_no ?? order.RefNo ?? '';
+          const created = formatDate(order.CreateDateTime ?? order.created_at ?? order.CreatedDate ?? order.CreatedOn);
+          const total = Number(order.Total ?? order.total ?? 0);
+          const anf = Number(order.ANF ?? order.anf ?? order.GrossProfit ?? order.gross_profit ?? 0);
+          const itemRows = items.map(item => {
+            const service = item.ServiceCode ?? item.service_code ?? item.Service ?? '-';
+            const product = item.ProductCode ?? item.product_code ?? item.Product ?? '-';
+            const region = item.RegionCode ?? item.region_code ?? item.Region ?? '-';
+            const qty = Number(item.Quantity ?? item.quantity ?? 0);
+            const unit = Number(item.UnitPrice ?? item.unit_price ?? 0);
+            const lineTotal = Number(item.LineTotal ?? item.line_total ?? (qty * unit));
+            const cost = Number(item.EstimatedCost ?? item.estimated_cost ?? item.Cost ?? 0);
+            const gross = Number(item.GrossProfit ?? item.gross_profit ?? (lineTotal - cost));
+            const margin = Number(item.GrossMarginPct ?? item.gross_margin_pct ?? (lineTotal ? (gross / lineTotal) * 100 : 0));
             return `<tr>
-              <td>${escapeHtml(accGetFirst(item, ACC_ITEM_FIELD_MAP.service) || '-') }</td>
-              <td>${escapeHtml(accGetFirst(item, ACC_ITEM_FIELD_MAP.product) || '-') }</td>
-              <td>${escapeHtml(accGetFirst(item, ACC_ITEM_FIELD_MAP.region) || '-') }</td>
-              <td class="num">${accFormatNumber(qty)}</td>
-              <td class="num">${accFormatNumber(unit)}</td>
-              <td class="num">${accFormatNumber(lineTotal)}</td>
-              <td class="num">${ cost ? accFormatNumber(cost) : '-' }</td>
-              <td class="num">${accFormatNumber(gross)}</td>
-              <td class="num">${ lineTotal ? accFormatNumber((gross/lineTotal)*100) + '%' : '-' }</td>
+              <td>${escapeHtml(service)}</td>
+              <td>${escapeHtml(product)}</td>
+              <td>${escapeHtml(region)}</td>
+              <td class="num">${formatNumber(qty)}</td>
+              <td class="num">${formatNumber(unit)}</td>
+              <td class="num">${formatNumber(lineTotal)}</td>
+              <td class="num">${formatNumber(cost)}</td>
+              <td class="num">${formatNumber(gross)}</td>
+              <td class="num">${lineTotal ? formatNumber(margin) + '%' : '-'}</td>
             </tr>`;
-          });
-          const totalCell = total ? accFormatNumber(total) : '-';
-          const anfCell = anf ? accFormatNumber(anf) : '-';
+          }).join('');
           html += `<details>
             <summary>
-              <div>
-                <strong>${escapeHtml(String(id))}</strong>${ ref ? `<span class="muted-text"> · ${escapeHtml(ref)}</span>` : '' }
-                <br/>
-                <span class="muted-text">Created: ${created} | Updated: ${updated}</span>
-              </div>
-              <div style="text-align:right;">
-                <span class="num">Total: ${totalCell}</span><br/>
-                <span class="num">ANF: ${anfCell}</span>
-              </div>
+              <span>Work Order #${escapeHtml(orderId)}${ref ? ` <span class="muted-text">${escapeHtml(ref)}</span>` : ''}<br><span class="muted-text">Created: ${created}</span></span>
+              <span class="num">Total: ${formatNumber(total)}<br>ANF: ${formatNumber(anf)}</span>
             </summary>
             <div style="overflow-x:auto;">
               <table>
-                <thead>
-                  <tr>
-                    <th>Service</th>
-                    <th>Product</th>
-                    <th>Region</th>
-                    <th class="num">Qty</th>
-                    <th class="num">Unit Price</th>
-                    <th class="num">Line Total</th>
-                    <th class="num">Est Cost</th>
-                    <th class="num">ANF</th>
-                    <th class="num">Margin %</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${rows.join('') || '<tr><td colspan="9">No items found.</td></tr>'}
-                </tbody>
+                <thead><tr><th>Service</th><th>Product</th><th>Region</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th><th class="num">Cost</th><th class="num">ANF</th><th class="num">Margin</th></tr></thead>
+                <tbody>${itemRows || '<tr><td colspan="9">No work items found.</td></tr>'}</tbody>
               </table>
             </div>
           </details>`;
         });
-        accountOrdersEl.innerHTML = html;
+        return html;
+      }
+
+      function formatNumber(value) {
+        const n = Number(value);
+        if (!Number.isFinite(n)) return '-';
+        return n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
 
       loadData();

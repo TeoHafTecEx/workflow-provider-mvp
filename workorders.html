@@ -159,11 +159,15 @@ button:hover, a.btn:hover{
   const API_ROOT = window.APP_CONFIG.API_BASE || window.APP_CONFIG.POSTGRES_API_BASE || '';
   const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || API_ROOT;
   const WORK_ORDER_READ_ENDPOINTS = [
+    `${POSTGRES_ROOT}/work_orders`,
+    `${API_ROOT}/work_orders`,
     `${API_ROOT}/api_work_orders`,
     `${POSTGRES_ROOT}/work-orders`,
     `${API_ROOT}/work-orders`
   ].filter(Boolean);
   const WORK_ITEM_READ_ENDPOINTS = [
+    `${POSTGRES_ROOT}/work_items`,
+    `${API_ROOT}/work_items`,
     `${API_ROOT}/api_work_items`,
     `${POSTGRES_ROOT}/work-items`,
     `${API_ROOT}/work-items`

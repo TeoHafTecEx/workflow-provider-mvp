@@ -54,6 +54,16 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
   const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || API_ROOT;
   const WORK_ORDERS_URL = `${POSTGRES_ROOT}/work_orders`;
   const WORK_ITEMS_URL = `${POSTGRES_ROOT}/work_items`;
+  const ACCOUNT_URLS = [
+    `${API_ROOT}/api_accounts`,
+    `${POSTGRES_ROOT}/accounts`,
+    `${API_ROOT}/accounts`
+  ];
+  const CONTACT_URLS = [
+    `${API_ROOT}/api_contacts`,
+    `${POSTGRES_ROOT}/contacts`,
+    `${API_ROOT}/contacts`
+  ];
 
   document.getElementById('themeToggle').onclick = () => {
     root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
@@ -64,7 +74,24 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
     table.innerHTML = '<thead><tr><th>Loading work orders...</th></tr></thead>';
     try {
       const orders = rowsFromResult(await fetchJson(WORK_ORDERS_URL));
-      const items = rowsFromResult(await fetchJson(WORK_ITEMS_URL));
+      let accounts = [];
+      let contacts = [];
+      try {
+        accounts = rowsFromResult(await fetchFirstAvailable(ACCOUNT_URLS));
+      } catch (err) {
+        console.warn('Account names could not be loaded. Account IDs will be shown instead.', err);
+      }
+      try {
+        contacts = rowsFromResult(await fetchFirstAvailable(CONTACT_URLS));
+      } catch (err) {
+        console.warn('Contact names could not be loaded. Contact IDs will be shown instead.', err);
+      }
+      let items = [];
+      try {
+        items = rowsFromResult(await fetchJson(WORK_ITEMS_URL));
+      } catch (err) {
+        console.warn('Work items endpoint is not exposed yet. Work orders will load without nested items.', err);
+      }
       const ordersWithItems = await Promise.all(orders.map(async order => {
         const orderId = getOrderId(order);
         return {
@@ -72,7 +99,7 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
           items: await fetchWorkItemsForOrder(orderId, items)
         };
       }));
-      buildTable(ordersWithItems);
+      buildTable(ordersWithItems, buildAccountMap(accounts), buildContactMap(contacts));
     } catch(err) {
       table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
       console.error(err);
@@ -87,6 +114,15 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
     catch (_) { throw new Error(`${url}: endpoint returned non-JSON response`); }
     if (!res.ok || result.ok === false) throw new Error(`${url}: ${result.error || res.status}`);
     return result;
+  }
+
+  async function fetchFirstAvailable(urls){
+    const errors = [];
+    for (const url of urls) {
+      try { return await fetchJson(url); }
+      catch (err) { errors.push(`${url}: ${err.message}`); }
+    }
+    throw new Error(errors.join(' | '));
   }
 
   function rowsFromResult(result){
@@ -126,6 +162,37 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
     for (const key of keys) if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
     return fallback;
   }
+  function clean(value){ return String(value ?? '').trim(); }
+
+  function buildAccountMap(accounts){
+    const map = new Map();
+    accounts.forEach(account => {
+      const id = clean(getVal(account, ['account_id','AccountId','accountId','id','Id','ID'], ''));
+      const name = clean(getVal(account, ['account_name','AccountName','accountName','name','Name'], ''));
+      if (id) map.set(id, name || `Account ${id}`);
+    });
+    return map;
+  }
+
+  function buildContactMap(contacts){
+    const map = new Map();
+    contacts.forEach(contact => {
+      const id = clean(getVal(contact, ['contact_id','ContactId','contactId','id','Id','ID'], ''));
+      const firstName = clean(getVal(contact, ['contact_name','ContactName','contactName','first_name','FirstName','name','Name'], ''));
+      const surname = clean(getVal(contact, ['contact_surname','ContactSurname','contactSurname','surname','Surname','last_name','LastName'], ''));
+      const company = clean(getVal(contact, ['contact_company','ContactCompany','company','Company'], ''));
+      const name = [firstName, surname].filter(Boolean).join(' ').trim() || company;
+      if (id) map.set(id, name || `Contact ${id}`);
+    });
+    return map;
+  }
+
+  function linkedName(id, map, label){
+    const cleanId = clean(id);
+    if (!cleanId || cleanId === '-') return '-';
+    const name = map.get(cleanId);
+    return name || `${label} ${cleanId}`;
+  }
   function num(value){ const n = Number(value); return Number.isFinite(n) ? n : 0; }
   function formatNumber(value){ const n = Number(value); return Number.isFinite(n) ? n.toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'; }
   function formatDate(value){ if(!value) return '-'; const d = new Date(value); return isNaN(d.getTime()) ? escapeHtml(String(value)) : escapeHtml(d.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})); }
@@ -143,10 +210,14 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
     return { qty, unit, lineTotal, cost, gross, margin };
   }
 
-  function buildTable(data){
+  function buildTable(data, accountMap = new Map(), contactMap = new Map()){
     if (!data.length) { table.innerHTML = '<thead><tr><th>No work orders available</th></tr></thead>'; return; }
     const body = data.map(({order,items},idx)=>{
       const orderId = getOrderId(order) || '-';
+      const accountId = getVal(order,['account_id','AccountId','accountId'],'-');
+      const contactId = getVal(order,['contact_id','ContactId','contactId'],'-');
+      const accountName = linkedName(accountId, accountMap, 'Account');
+      const contactName = linkedName(contactId, contactMap, 'Contact');
       const total = getVal(order, ['total','Total'], '') || items.reduce((sum,item)=>sum+calcItem(item).lineTotal,0);
       const anf = getVal(order, ['anf','ANF','gross_profit','GrossProfit'], '') || items.reduce((sum,item)=>sum+calcItem(item).gross,0);
       const rows = items.map(item => {
@@ -165,8 +236,8 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
       }).join('') || '<tr><td colspan="9">No items found.</td></tr>';
       return `<tr class="wo-summary">
         <td><strong>${escapeHtml(orderId)}</strong><br><span class="muted-text">${escapeHtml(getVal(order,['status','Status'],'-'))}</span></td>
-        <td>${escapeHtml(getVal(order,['account_id','AccountId','accountId'],'-'))}</td>
-        <td>${escapeHtml(getVal(order,['contact_id','ContactId','contactId'],'-'))}</td>
+        <td><strong>${escapeHtml(accountName)}</strong>${accountId && accountId !== '-' ? `<br><span class="muted-text">ID: ${escapeHtml(accountId)}</span>` : ''}</td>
+        <td><strong>${escapeHtml(contactName)}</strong>${contactId && contactId !== '-' ? `<br><span class="muted-text">ID: ${escapeHtml(contactId)}</span>` : ''}</td>
         <td class="num">${formatNumber(total)}</td>
         <td class="num">${formatNumber(anf)}</td>
         <td>${formatDate(getVal(order,['created_at','CreateDateTime','CreatedDate','created'],'') )}</td>

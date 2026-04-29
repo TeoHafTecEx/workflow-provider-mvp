@@ -5,15 +5,92 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Contacts – TGC CRM</title>
   <link rel="stylesheet" href="styles.css" />
-  <!-- Load global configuration for API endpoints -->
   <script src="config.js"></script>
   <style>
-    .work-orders-container details { margin: 10px 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 12px; }
-    .work-orders-container summary { cursor: pointer; list-style: none; display: flex; justify-content: space-between; gap: 16px; align-items: center; font-weight: 700; }
-    .work-orders-container summary::-webkit-details-marker { display: none; }
-    .work-orders-container table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-    .work-orders-container th, .work-orders-container td { padding: 8px; border-bottom: 1px solid var(--border); }
-    .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .work-orders-container details{
+      margin:10px 0;
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:12px;
+    }
+
+    .work-orders-container summary{
+      cursor:pointer;
+      list-style:none;
+      display:flex;
+      justify-content:space-between;
+      gap:16px;
+      align-items:center;
+      font-weight:700;
+    }
+
+    .work-orders-container summary::-webkit-details-marker{ display:none; }
+    .work-orders-container table{ width:100%; min-width:900px; border-collapse:collapse; margin-top:10px; }
+    .work-orders-container th,
+    .work-orders-container td{ padding:8px; border-bottom:1px solid var(--border); }
+
+    .num{
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+      white-space:nowrap;
+    }
+
+    .contact-name{
+      font-weight:800;
+      color:var(--main);
+    }
+
+    .contact-sub{
+      display:block;
+      margin-top:4px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .table-note{
+      margin-top:10px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    .loading-bar{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    #contactModal{
+      position:fixed;
+      inset:0;
+      z-index:1000;
+      overflow-y:auto;
+      background:rgba(10,24,38,.44);
+      backdrop-filter:blur(4px);
+      padding:24px 16px;
+    }
+
+    #contactModal .wrapper{
+      width:min(900px, 100%);
+      margin:0 auto;
+    }
+
+    #contactModal .card{
+      margin-top:0;
+      border-radius:16px;
+      box-shadow:var(--shadow-lg, var(--shadow));
+    }
+
+    #contactModal.hidden{ display:none !important; }
+
+    @media (max-width:900px){
+      .grid.grid-3,
+      .grid.grid-2{ grid-template-columns:1fr; }
+    }
   </style>
 </head>
 <body>
@@ -22,7 +99,7 @@
       <div class="row">
         <div>
           <h1>Contacts</h1>
-          <p class="muted-text">Manage contact records, search records, and view or update entries.</p>
+          <p class="muted-text">Optimized loading: fast contacts list, cached linked work orders, and no repeated full-table fetch per contact.</p>
         </div>
         <div class="spacer"></div>
         <a href="index.html" class="btn">🏠 Home</a>
@@ -82,9 +159,11 @@
       </div>
 
       <div class="card">
+        <div id="loadState" class="loading-bar" hidden></div>
         <div class="table-wrap">
           <table id="dataTable"></table>
         </div>
+        <div id="tableNote" class="table-note"></div>
       </div>
     </div>
   </div>
@@ -175,7 +254,7 @@
               </select>
             </div>
 
-            <div class="grid-full">
+            <div class="grid-full col-span-full">
               <label for="requestDetail">Request Detail</label>
               <input id="requestDetail" type="text" />
             </div>
@@ -187,15 +266,18 @@
             <button id="saveBtn" type="submit" class="submit-btn">Save Contact</button>
           </div>
         </form>
+
         <div id="contactWorkOrders" class="work-orders-container" style="margin-top:16px;"></div>
       </div>
     </div>
   </div>
 
   <script>
-    (function () {
+    (function(){
       const root = document.getElementById("crm-page");
       const table = document.getElementById("dataTable");
+      const loadState = document.getElementById("loadState");
+      const tableNote = document.getElementById("tableNote");
 
       const statTotal = document.getElementById("statTotal");
       const statActive = document.getElementById("statActive");
@@ -220,55 +302,58 @@
       const contactForm = document.getElementById("contactForm");
       const formMode = document.getElementById("formMode");
       const editRowId = document.getElementById("editRowId");
+      const linkedOrders = document.getElementById("contactWorkOrders");
 
-      // Base URL for contacts derived from the global configuration.
-      // The read endpoint follows the same pattern used by quotes.html: /api_contacts.
-      // Fallbacks are kept so this page also works with the older /contacts route.
-      const API_ROOT = window.APP_CONFIG.API_BASE || window.APP_CONFIG.POSTGRES_API_BASE || "";
-      const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || API_ROOT;
-      const API_BASE = POSTGRES_ROOT + "/contacts";
+      const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || window.APP_CONFIG.API_BASE;
+      const API_ROOT = window.APP_CONFIG.API_BASE || POSTGRES_ROOT;
+      const REQUEST_TIMEOUT_MS = 8000;
+      const PAGE_SIZE = 500;
+
       const CONTACT_READ_ENDPOINTS = [
         `${API_ROOT}/api_contacts`,
-        `${POSTGRES_ROOT}/contacts`,
-        `${API_ROOT}/contacts`
-      ].filter(Boolean);
-      const WORK_ORDER_READ_ENDPOINTS = [
-        `${POSTGRES_ROOT}/work_orders`
-      ].filter(Boolean);
-      const WORK_ITEM_READ_ENDPOINTS = [
-        `${POSTGRES_ROOT}/work_items`
-      ].filter(Boolean);
+        `${POSTGRES_ROOT}/contacts?limit=${PAGE_SIZE}`,
+        `${API_ROOT}/contacts?limit=${PAGE_SIZE}`
+      ];
+
+      const API_BASE = `${POSTGRES_ROOT}/contacts`;
+      const WORK_ORDERS_URL = `${POSTGRES_ROOT}/work_orders?limit=5000`;
+      const WORK_ITEMS_URL = `${POSTGRES_ROOT}/work_items?limit=10000`;
+
       let rawRows = [];
       let filteredRows = [];
+      let workOrderCache = null;
+      let workItemCache = null;
+      let workOrdersByContact = new Map();
+      let workItemsByOrder = new Map();
 
       const FIELD_MAP = {
-        id: ["ContactId", "Id", "ID"],
-        accountId: ["AccountId"],
-        firstName: ["ContactName", "FirstName", "Name"],
-        surname: ["ContactSurname", "Surname", "LastName"],
-        company: ["ContactCompany", "Company"],
-        industry: ["ContactIndustry", "Industry"],
-        email: ["ContactEmail", "EmailAddress", "Email"],
-        phone: ["ContactPhone", "TelephoneNumber", "PhoneNumber", "Phone"],
-        jobTitle: ["ContactJobTitle", "JobTitle"],
-        owner: ["ContactOwner", "Owner"],
-        role: ["ContactRole", "Role"],
-        requestDetail: ["ContactRequestDetail", "RequestDetail", "Notes", "Comment", "Description"],
-        statusId: ["ContactStatusId", "StatusId"],
-        location: ["Location", "City"],
-        serviceCategory: ["ServiceCategory"],
-        source: ["Source"],
-        submitPage: ["SubmitPage"],
-        searchTerm: ["SearchTerm"],
-        created: ["CreateDateTime", "CreatedDate", "CreatedOn"],
-        updated: ["ModifiedDateTime", "UpdateDateTime", "ModifiedDate", "UpdatedOn"]
+        id:["ContactId","contact_id","contactId","Id","ID","id"],
+        accountId:["AccountId","account_id","accountId"],
+        firstName:["ContactName","contact_name","contactName","FirstName","first_name","Name","name"],
+        surname:["ContactSurname","contact_surname","contactSurname","Surname","surname","LastName","last_name"],
+        company:["ContactCompany","contact_company","contactCompany","Company","company"],
+        industry:["ContactIndustry","contact_industry","contactIndustry","Industry","industry"],
+        email:["ContactEmail","contact_email","contactEmail","EmailAddress","email_address","Email","email"],
+        phone:["ContactPhone","contact_phone","contactPhone","TelephoneNumber","PhoneNumber","phone_number","Phone","phone"],
+        jobTitle:["ContactJobTitle","contact_job_title","contactJobTitle","JobTitle","job_title"],
+        owner:["ContactOwner","contact_owner","contactOwner","Owner","owner"],
+        role:["ContactRole","contact_role","contactRole","Role","role"],
+        requestDetail:["ContactRequestDetail","contact_request_detail","contactRequestDetail","RequestDetail","Notes","Comment","Description"],
+        statusId:["ContactStatusId","contact_status_id","contactStatusId","StatusId","status_id","Status","status"],
+        location:["Location","location","City","city"],
+        serviceCategory:["ServiceCategory","service_category","serviceCategory"],
+        source:["Source","source"],
+        submitPage:["SubmitPage","submit_page","submitPage"],
+        searchTerm:["SearchTerm","search_term","searchTerm"],
+        created:["CreateDateTime","created_at","CreatedDate","CreatedOn","created"],
+        updated:["ModifiedDateTime","updated_at","UpdateDateTime","ModifiedDate","UpdatedOn","updated"]
       };
 
       themeToggle.addEventListener("click", () => {
         root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
       });
 
-      refreshBtn.addEventListener("click", loadData);
+      refreshBtn.addEventListener("click", () => loadData(true));
       newContactBtn.addEventListener("click", () => openModal("create"));
       clearFiltersBtn.addEventListener("click", clearFilters);
       exportBtn.addEventListener("click", exportCsv);
@@ -282,107 +367,121 @@
       deleteBtn.addEventListener("click", handleDelete);
       contactForm.addEventListener("submit", handleSave);
 
-      async function loadData() {
-        table.innerHTML = "<thead><tr><th>Loading...</th></tr></thead>";
+      modal.addEventListener("click", e => {
+        if (e.target === modal) closeModal();
+      });
+
+      async function loadData(forceRefresh = false){
+        setLoading("Loading contacts...");
+        table.innerHTML = "<thead><tr><th>Loading contacts...</th></tr></thead>";
+        tableNote.textContent = "";
 
         try {
-          const result = await fetchJsonFrom(
-            CONTACT_READ_ENDPOINTS,
-            "Failed to load contacts"
-          );
-
+          if (forceRefresh) resetLinkedWorkCache();
+          const result = await fetchFirstAvailable(CONTACT_READ_ENDPOINTS);
           rawRows = rowsFromResult(result).map(normalizeRow);
           applyFiltersAndRender();
         } catch (err) {
           table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
           console.error(err);
+        } finally {
+          clearLoading();
         }
       }
 
-      async function fetchJsonFrom(urls, fallbackMessage) {
-        const errors = [];
-        for (const url of urls) {
-          try {
-            const res = await fetch(url);
-            const text = await res.text();
-            let result;
-            try {
-              result = text ? JSON.parse(text) : {};
-            } catch (_) {
-              throw new Error("Endpoint returned HTML or another non-JSON response");
-            }
-            if (!res.ok || result.ok === false) {
-              throw new Error(result.error || `${res.status} ${res.statusText}`);
-            }
-            return result;
-          } catch (err) {
-            errors.push(`${url}: ${err.message}`);
-          }
+      async function fetchFirstAvailable(urls){
+        const requests = urls.filter(Boolean).map(url => fetchJson(url));
+        if (!requests.length) throw new Error("No contact endpoints configured");
+        return Promise.any(requests);
+      }
+
+      async function fetchJson(url){
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+        try {
+          const res = await fetch(url, {
+            signal:controller.signal,
+            headers:{ "Accept":"application/json" }
+          });
+          const text = await res.text();
+          let result;
+          try { result = text ? JSON.parse(text) : {}; }
+          catch (_) { throw new Error(`${url}: endpoint returned non-JSON response`); }
+          if (!res.ok || result.ok === false) throw new Error(`${url}: ${result.error || res.status + " " + res.statusText}`);
+          return result;
+        } catch (err) {
+          if (err.name === "AbortError") throw new Error(`${url}: request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+          throw err;
+        } finally {
+          clearTimeout(timer);
         }
-        throw new Error(`${fallbackMessage}. ${errors.join(" | ")}`);
       }
 
-      function rowsFromResult(result) {
-        return Array.isArray(result?.rows) ? result.rows : Array.isArray(result) ? result : [];
+      function rowsFromResult(result){
+        if (Array.isArray(result)) return result;
+        if (Array.isArray(result?.rows)) return result.rows;
+        if (Array.isArray(result?.data)) return result.data;
+        return [];
       }
 
-      function normalizeRow(row) {
+      function normalizeRow(row){
         const firstName = getFirst(row, FIELD_MAP.firstName);
         const surname = getFirst(row, FIELD_MAP.surname);
         const fullName = [firstName, surname].filter(Boolean).join(" ").trim();
 
         return {
-          raw: row,
-          id: getFirst(row, FIELD_MAP.id),
-          accountId: getFirst(row, FIELD_MAP.accountId),
+          raw:row,
+          id:getFirst(row, FIELD_MAP.id),
+          accountId:getFirst(row, FIELD_MAP.accountId),
           firstName,
           surname,
-          name: fullName || firstName || surname || "",
-          company: getFirst(row, FIELD_MAP.company),
-          industry: getFirst(row, FIELD_MAP.industry),
-          email: getFirst(row, FIELD_MAP.email),
-          phone: getFirst(row, FIELD_MAP.phone),
-          jobTitle: getFirst(row, FIELD_MAP.jobTitle),
-          owner: getFirst(row, FIELD_MAP.owner),
-          role: getFirst(row, FIELD_MAP.role),
-          requestDetail: getFirst(row, FIELD_MAP.requestDetail),
-          statusId: getFirst(row, FIELD_MAP.statusId),
-          status: normalizeStatus(getFirst(row, FIELD_MAP.statusId)),
-          location: getFirst(row, FIELD_MAP.location),
-          serviceCategory: getFirst(row, FIELD_MAP.serviceCategory),
-          source: getFirst(row, FIELD_MAP.source),
-          submitPage: getFirst(row, FIELD_MAP.submitPage),
-          searchTerm: getFirst(row, FIELD_MAP.searchTerm),
-          created: getFirst(row, FIELD_MAP.created),
-          updated: getFirst(row, FIELD_MAP.updated)
+          name:fullName || firstName || surname || "",
+          company:getFirst(row, FIELD_MAP.company),
+          industry:getFirst(row, FIELD_MAP.industry),
+          email:getFirst(row, FIELD_MAP.email),
+          phone:getFirst(row, FIELD_MAP.phone),
+          jobTitle:getFirst(row, FIELD_MAP.jobTitle),
+          owner:getFirst(row, FIELD_MAP.owner),
+          role:getFirst(row, FIELD_MAP.role),
+          requestDetail:getFirst(row, FIELD_MAP.requestDetail),
+          statusId:getFirst(row, FIELD_MAP.statusId),
+          status:normalizeStatus(getFirst(row, FIELD_MAP.statusId)),
+          location:getFirst(row, FIELD_MAP.location),
+          serviceCategory:getFirst(row, FIELD_MAP.serviceCategory),
+          source:getFirst(row, FIELD_MAP.source),
+          submitPage:getFirst(row, FIELD_MAP.submitPage),
+          searchTerm:getFirst(row, FIELD_MAP.searchTerm),
+          created:getFirst(row, FIELD_MAP.created),
+          updated:getFirst(row, FIELD_MAP.updated)
         };
       }
 
-      function getFirst(obj, keys) {
+      function getFirst(obj, keys){
         for (const key of keys) {
-          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") {
-            return obj[key];
-          }
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
         }
         return "";
       }
 
-      function normalizeStatus(value) {
+      function normalizeStatus(value){
         const str = String(value || "").trim().toLowerCase();
         if (!str) return "Unknown";
-        if (["1", "active", "enabled", "open"].includes(str)) return "Active";
-        if (["0", "inactive", "disabled", "closed"].includes(str)) return "Inactive";
-        if (str.includes("draft")) return "Draft";
+        if (["1","active","enabled","open","true","yes"].includes(str)) return "Active";
+        if (["0","inactive","disabled","closed","false","no"].includes(str)) return "Inactive";
+        if (str.includes("draft") || str === "2" || str === "pending") return "Draft";
         return "Unknown";
       }
 
-      function applyFiltersAndRender() {
+      function applyFiltersAndRender(){
         const search = searchInput.value.trim().toLowerCase();
         const status = statusFilter.value;
         const sort = sortBy.value;
 
         filteredRows = rawRows.filter(row => {
           const haystack = [
+            row.id,
+            row.accountId,
             row.name,
             row.firstName,
             row.surname,
@@ -397,87 +496,50 @@
             row.location,
             row.serviceCategory,
             row.source,
-            row.status,
-            row.accountId
+            row.status
           ].join(" ").toLowerCase();
 
           const matchesSearch = !search || haystack.includes(search);
-          const matchesStatus =
-            status === "all"
-              ? true
-              : status === "unknown"
-              ? !row.status || row.status === "Unknown"
-              : row.status.toLowerCase() === status;
+          const matchesStatus = status === "all"
+            ? true
+            : status === "unknown"
+            ? !row.status || row.status === "Unknown"
+            : row.status.toLowerCase() === status;
 
           return matchesSearch && matchesStatus;
         });
 
         filteredRows.sort((a, b) => {
           switch (sort) {
-            case "name-desc":
-              return compareText(b.name, a.name);
-            case "created-desc":
-              return compareDate(b.created, a.created);
-            case "created-asc":
-              return compareDate(a.created, b.created);
-            default:
-              return compareText(a.name, b.name);
+            case "name-desc": return compareText(b.name, a.name);
+            case "created-desc": return compareDate(b.created, a.created);
+            case "created-asc": return compareDate(a.created, b.created);
+            case "name-asc":
+            default: return compareText(a.name, b.name);
           }
         });
 
         renderStats(filteredRows);
         renderTable(filteredRows);
+        tableNote.textContent = `${filteredRows.length} contact${filteredRows.length === 1 ? "" : "s"} shown.`;
       }
 
-      function compareText(a, b) {
-        return String(a || "").localeCompare(String(b || ""));
-      }
-
-      function compareDate(a, b) {
-        return parseDateSafe(a) - parseDateSafe(b);
-      }
-
-      function parseDateSafe(value) {
-        const d = new Date(value);
-        return isNaN(d.getTime()) ? 0 : d.getTime();
-      }
-
-      function renderStats(rows) {
+      function renderStats(rows){
         statTotal.textContent = rows.length;
         statActive.textContent = rows.filter(r => r.status === "Active").length;
 
         const now = new Date();
         statNewMonth.textContent = rows.filter(r => {
           const d = new Date(r.created);
-          return !isNaN(d.getTime()) &&
-            d.getMonth() === now.getMonth() &&
-            d.getFullYear() === now.getFullYear();
+          return !isNaN(d.getTime()) && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
         }).length;
       }
 
-      function renderTable(rows) {
+      function renderTable(rows){
         if (!rows.length) {
           table.innerHTML = `
-            <thead>
-              <tr>
-                <th>Contact</th>
-                <th>Company</th>
-                <th>Email</th>
-                <th>Phone</th>
-                <th>Status</th>
-                <th>Role / Title</th>
-                <th>Location</th>
-                <th>Created</th>
-                <th>Updated</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colspan="10">No contacts match the current filters.</td>
-              </tr>
-            </tbody>
-          `;
+            <thead><tr><th>Contact</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Role / Title</th><th>Location</th><th>Created</th><th>Updated</th><th>Actions</th></tr></thead>
+            <tbody><tr><td colspan="10"><div class="empty-state">No contacts match the current filters.</div></td></tr></tbody>`;
           return;
         }
 
@@ -500,27 +562,26 @@
             ${rows.map(row => `
               <tr>
                 <td>
-                  <strong>${escapeHtml(row.name || "Unnamed Contact")}</strong><br />
-                  <span class="muted-text">ID: ${escapeHtml(row.id || "-")}</span>
+                  <div class="contact-name">${escapeHtml(row.name || "Unnamed Contact")}</div>
+                  <span class="contact-sub">ID: ${escapeHtml(row.id || "-")}</span>
                 </td>
                 <td>${escapeHtml(row.company || "-")}</td>
                 <td>${escapeHtml(row.email || "-")}</td>
                 <td>${escapeHtml(row.phone || "-")}</td>
-                <td>${escapeHtml(row.status || "Unknown")}</td>
+                <td>${renderStatusBadge(row.status)}</td>
                 <td>${escapeHtml([row.role, row.jobTitle].filter(Boolean).join(" • ") || "-")}</td>
                 <td>${escapeHtml(row.location || "-")}</td>
                 <td>${formatDate(row.created)}</td>
                 <td>${formatDate(row.updated)}</td>
                 <td>
-                  <div class="actions">
-                    <button type="button" data-action="edit" data-id="${escapeHtml(row.id)}">Edit</button>
-                    <button type="button" data-action="view" data-id="${escapeHtml(row.id)}">View</button>
+                  <div class="row-actions">
+                    <button type="button" data-action="edit" data-id="${escapeHtml(String(row.id))}">Edit</button>
+                    <button type="button" data-action="view" data-id="${escapeHtml(String(row.id))}">View</button>
                   </div>
                 </td>
               </tr>
             `).join("")}
-          </tbody>
-        `;
+          </tbody>`;
 
         table.querySelectorAll("[data-action='edit']").forEach(btn => {
           btn.addEventListener("click", () => {
@@ -537,35 +598,15 @@
         });
       }
 
-      function formatDate(value) {
-        if (!value) return "-";
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return escapeHtml(String(value));
-        return escapeHtml(
-          d.toLocaleDateString("en-ZA", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric"
-          })
-        );
-      }
-
-      function openModal(mode, row = null) {
+      function openModal(mode, row = null){
         formMode.value = mode;
         editRowId.value = row?.id || "";
 
         const isView = mode === "view";
         const isEdit = mode === "edit";
 
-        modalTitle.textContent =
-          mode === "create" ? "New Contact" :
-          mode === "edit" ? "Edit Contact" :
-          "View Contact";
-
-        modalSubtitle.textContent =
-          mode === "create" ? "Create a new contact record" :
-          mode === "edit" ? "Update contact details" :
-          "View contact information";
+        modalTitle.textContent = mode === "create" ? "New Contact" : mode === "edit" ? "Edit Contact" : "View Contact";
+        modalSubtitle.textContent = mode === "create" ? "Create a new contact record" : mode === "edit" ? "Update contact details" : "View contact information";
 
         document.getElementById("contactName").value = row?.firstName || "";
         document.getElementById("contactSurname").value = row?.surname || "";
@@ -580,8 +621,7 @@
         document.getElementById("serviceCategory").value = row?.serviceCategory || "";
         document.getElementById("source").value = row?.source || "";
         document.getElementById("requestDetail").value = row?.requestDetail || "";
-        document.getElementById("status").value =
-          row?.status && ["Active", "Inactive", "Draft"].includes(row.status) ? row.status : "Active";
+        document.getElementById("status").value = row?.status && ["Active","Inactive","Draft"].includes(row.status) ? row.status : "Active";
 
         Array.from(contactForm.querySelectorAll("input, select")).forEach(el => {
           if (el.type !== "hidden") el.disabled = isView;
@@ -594,58 +634,51 @@
         modal.classList.remove("hidden");
       }
 
-      function closeModal() {
+      function closeModal(){
         modal.classList.add("hidden");
         contactForm.reset();
         formMode.value = "create";
         editRowId.value = "";
         deleteBtn.classList.add("hidden");
         document.getElementById("saveBtn").classList.remove("hidden");
-        const linkedOrders = document.getElementById("contactWorkOrders");
-        if (linkedOrders) linkedOrders.innerHTML = "";
+        linkedOrders.innerHTML = "";
       }
 
-      async function handleSave(e) {
+      async function handleSave(e){
         e.preventDefault();
 
         const mode = formMode.value;
         const rowId = editRowId.value;
-
         const payload = {
-          ContactName: document.getElementById("contactName").value.trim(),
-          ContactSurname: document.getElementById("contactSurname").value.trim(),
-          ContactCompany: document.getElementById("contactCompany").value.trim(),
-          ContactIndustry: document.getElementById("contactIndustry").value.trim(),
-          ContactEmail: document.getElementById("contactEmail").value.trim(),
-          ContactPhone: document.getElementById("contactPhone").value.trim(),
-          ContactJobTitle: document.getElementById("contactJobTitle").value.trim(),
-          ContactRole: document.getElementById("contactRole").value.trim(),
-          ContactOwner: document.getElementById("contactOwner").value.trim(),
-          Location: document.getElementById("location").value.trim(),
-          ServiceCategory: document.getElementById("serviceCategory").value.trim(),
-          Source: document.getElementById("source").value.trim(),
-          ContactRequestDetail: document.getElementById("requestDetail").value.trim(),
-          ContactStatusId: document.getElementById("status").value
+          ContactName:document.getElementById("contactName").value.trim(),
+          ContactSurname:document.getElementById("contactSurname").value.trim(),
+          ContactCompany:document.getElementById("contactCompany").value.trim(),
+          ContactIndustry:document.getElementById("contactIndustry").value.trim(),
+          ContactEmail:document.getElementById("contactEmail").value.trim(),
+          ContactPhone:document.getElementById("contactPhone").value.trim(),
+          ContactJobTitle:document.getElementById("contactJobTitle").value.trim(),
+          ContactRole:document.getElementById("contactRole").value.trim(),
+          ContactOwner:document.getElementById("contactOwner").value.trim(),
+          Location:document.getElementById("location").value.trim(),
+          ServiceCategory:document.getElementById("serviceCategory").value.trim(),
+          Source:document.getElementById("source").value.trim(),
+          ContactRequestDetail:document.getElementById("requestDetail").value.trim(),
+          ContactStatusId:document.getElementById("status").value
         };
 
         try {
           const url = mode === "edit" ? `${API_BASE}/${encodeURIComponent(rowId)}` : API_BASE;
           const method = mode === "edit" ? "PUT" : "POST";
-
           const res = await fetch(url, {
             method,
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
+            headers:{ "Content-Type":"application/json", "Accept":"application/json" },
+            body:JSON.stringify(payload)
           });
-
           const result = await res.json().catch(() => ({}));
-
-          if (!res.ok || result.ok === false) {
-            throw new Error(result.error || `Failed to ${mode === "edit" ? "update" : "create"} contact`);
-          }
-
+          if (!res.ok || result.ok === false) throw new Error(result.error || `Failed to ${mode === "edit" ? "update" : "create"} contact`);
           closeModal();
-          await loadData();
+          resetLinkedWorkCache();
+          await loadData(true);
           alert(mode === "edit" ? "Contact updated successfully." : "Contact created successfully.");
         } catch (err) {
           console.error(err);
@@ -653,25 +686,18 @@
         }
       }
 
-      async function handleDelete() {
+      async function handleDelete(){
         const rowId = editRowId.value;
         if (!rowId) return;
-
         if (!confirm("Delete this contact?")) return;
 
         try {
-          const res = await fetch(`${API_BASE}/${encodeURIComponent(rowId)}`, {
-            method: "DELETE"
-          });
-
+          const res = await fetch(`${API_BASE}/${encodeURIComponent(rowId)}`, { method:"DELETE", headers:{ "Accept":"application/json" } });
           const result = await res.json().catch(() => ({}));
-
-          if (!res.ok || result.ok === false) {
-            throw new Error(result.error || "Failed to delete contact");
-          }
-
+          if (!res.ok || result.ok === false) throw new Error(result.error || "Failed to delete contact");
           closeModal();
-          await loadData();
+          resetLinkedWorkCache();
+          await loadData(true);
           alert("Contact deleted successfully.");
         } catch (err) {
           console.error(err);
@@ -679,167 +705,103 @@
         }
       }
 
-      function clearFilters() {
-        searchInput.value = "";
-        statusFilter.value = "all";
-        sortBy.value = "name-asc";
-        applyFiltersAndRender();
-      }
-
-      function exportCsv() {
-        const headers = ["ID", "Contact Name", "Company", "Email", "Phone", "Status", "Role / Title", "Location", "Created", "Updated"];
-        const lines = [
-          headers.join(","),
-          ...filteredRows.map(row => [
-            csvValue(row.id),
-            csvValue(row.name),
-            csvValue(row.company),
-            csvValue(row.email),
-            csvValue(row.phone),
-            csvValue(row.status),
-            csvValue([row.role, row.jobTitle].filter(Boolean).join(" • ")),
-            csvValue(row.location),
-            csvValue(row.created),
-            csvValue(row.updated)
-          ].join(","))
-        ];
-
-        const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "contacts.csv";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      }
-
-      function csvValue(value) {
-        return `"${String(value ?? "").replaceAll('"', '""')}"`;
-      }
-
-      function escapeHtml(str) {
-        return String(str ?? "")
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#039;");
-      }
-
-
-
-      function getLinkedObjectId(obj, explicitKeys) {
-        for (const key of explicitKeys) {
-          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
-        }
-        const dynamicKey = Object.keys(obj).find(key => {
-          const normal = key.toLowerCase().replace(/[^a-z0-9]/g, "");
-          return normal === "workorderid" || normal === "workordersid";
-        });
-        return dynamicKey ? obj[dynamicKey] : "";
-      }
-
-      function getLinkedOrderId(order) {
-        return getLinkedObjectId(order, ["work_order_id", "WorkOrderId", "WorkOrderID", "workOrderId", "Id", "ID", "id"]);
-      }
-
-      function getLinkedItemOrderId(item) {
-        return getLinkedObjectId(item, ["work_order_id", "WorkOrderId", "WorkOrderID", "workOrderId"]);
-      }
-
-      async function fetchItemsForLinkedOrder(orderId, allItems) {
-        const matched = allItems.filter(item => String(getLinkedItemOrderId(item)) === String(orderId));
-        if (matched.length) return matched;
-
-        try {
-          const itemResult = await fetchJsonFrom(
-            [`${POSTGRES_ROOT}/work_items?work_order_id=eq.${encodeURIComponent(orderId)}`],
-            "Failed to load work items"
-          );
-          return rowsFromResult(itemResult);
-        } catch (err) {
-          console.error(err);
-          return [];
-        }
-      }
-
-
-
-
-      async function loadContactWorkOrders(recordId) {
-        const container = document.getElementById("contactWorkOrders");
-        if (!container) return;
+      async function loadContactWorkOrders(recordId){
         if (!recordId) {
-          container.innerHTML = "";
+          linkedOrders.innerHTML = "";
           return;
         }
-        container.innerHTML = '<p class="muted-text">Loading work orders...</p>';
+
+        linkedOrders.innerHTML = '<p class="muted-text">Loading linked work orders...</p>';
+
         try {
-          const orderResult = await fetchJsonFrom(
-            WORK_ORDER_READ_ENDPOINTS,
-            "Failed to load work orders"
-          );
-          const orders = rowsFromResult(orderResult).filter(order =>
-            String(order.ContactId ?? order.contact_id ?? order.contactId ?? "") === String(recordId)
-          );
+          await ensureLinkedWorkCache();
+          const orders = workOrdersByContact.get(String(recordId)) || [];
+
           if (!orders.length) {
-            container.innerHTML = '<h3>Work Orders</h3><p class="muted-text">No linked work orders found.</p>';
+            linkedOrders.innerHTML = '<h3>Work Orders</h3><p class="muted-text">No linked work orders found.</p>';
             return;
           }
-          let allItems = [];
-          try {
-            allItems = rowsFromResult(await fetchJsonFrom(WORK_ITEM_READ_ENDPOINTS, "Failed to load work items"));
-          } catch (err) {
-            console.error(err);
-          }
 
-          const ordersWithItems = await Promise.all(orders.map(async order => {
-            const orderId = getLinkedOrderId(order);
-            const items = orderId ? await fetchItemsForLinkedOrder(orderId, allItems) : [];
-            return { order, items };
-          }));
-          container.innerHTML = renderLinkedWorkOrders(ordersWithItems);
+          linkedOrders.innerHTML = renderLinkedWorkOrders(orders);
         } catch (err) {
           console.error(err);
-          container.innerHTML = `<h3>Work Orders</h3><p>Error: ${escapeHtml(err.message)}</p>`;
+          linkedOrders.innerHTML = `<h3>Work Orders</h3><p>Error: ${escapeHtml(err.message)}</p>`;
         }
       }
 
-      function renderLinkedWorkOrders(ordersWithItems) {
+      async function ensureLinkedWorkCache(){
+        if (workOrderCache && workItemCache) return;
+
+        const [ordersResult, itemsResult] = await Promise.allSettled([
+          fetchJson(WORK_ORDERS_URL),
+          fetchJson(WORK_ITEMS_URL)
+        ]);
+
+        if (ordersResult.status === "rejected") throw ordersResult.reason;
+
+        workOrderCache = rowsFromResult(ordersResult.value);
+        workItemCache = itemsResult.status === "fulfilled" ? rowsFromResult(itemsResult.value) : [];
+        workItemsByOrder = groupItemsByOrder(workItemCache);
+        workOrdersByContact = groupOrdersByContact(workOrderCache);
+      }
+
+      function resetLinkedWorkCache(){
+        workOrderCache = null;
+        workItemCache = null;
+        workOrdersByContact = new Map();
+        workItemsByOrder = new Map();
+      }
+
+      function groupOrdersByContact(orders){
+        const map = new Map();
+        orders.forEach(order => {
+          const contactId = String(getVal(order, ["ContactId","contact_id","contactId"], ""));
+          if (!contactId) return;
+          if (!map.has(contactId)) map.set(contactId, []);
+          map.get(contactId).push(order);
+        });
+        return map;
+      }
+
+      function groupItemsByOrder(items){
+        const map = new Map();
+        items.forEach(item => {
+          const orderId = String(getLinkedItemOrderId(item));
+          if (!orderId) return;
+          if (!map.has(orderId)) map.set(orderId, []);
+          map.get(orderId).push(item);
+        });
+        return map;
+      }
+
+      function renderLinkedWorkOrders(orders){
         let html = '<h3>Work Orders</h3>';
-        ordersWithItems.forEach(({ order, items }) => {
-          const orderId = getLinkedOrderId(order) || '-';
-          const ref = order.EntityRefNo ?? order.entity_ref_no ?? order.RefNo ?? '';
-          const created = formatDate(order.CreateDateTime ?? order.created_at ?? order.CreatedDate ?? order.CreatedOn);
-          const total = Number(order.Total ?? order.total ?? 0);
-          const anf = Number(order.ANF ?? order.anf ?? order.GrossProfit ?? order.gross_profit ?? 0);
+        orders.forEach(order => {
+          const orderId = getLinkedOrderId(order) || "-";
+          const items = workItemsByOrder.get(String(orderId)) || [];
+          const ref = getVal(order, ["EntityRefNo","entity_ref_no","RefNo"], "");
+          const created = formatDate(getVal(order, ["CreateDateTime","created_at","CreatedDate","CreatedOn"], ""));
+          const total = numberOrFallback(getVal(order, ["Total","total"], ""), items.reduce((sum,item) => sum + calcItem(item).lineTotal, 0));
+          const anf = numberOrFallback(getVal(order, ["ANF","anf","GrossProfit","gross_profit"], ""), items.reduce((sum,item) => sum + calcItem(item).gross, 0));
+
           const itemRows = items.map(item => {
-            const service = item.ServiceCode ?? item.service_code ?? item.Service ?? '-';
-            const product = item.ProductCode ?? item.product_code ?? item.Product ?? '-';
-            const region = item.RegionCode ?? item.region_code ?? item.Region ?? '-';
-            const qty = Number(item.Quantity ?? item.quantity ?? 0);
-            const unit = Number(item.UnitPrice ?? item.unit_price ?? 0);
-            const lineTotal = Number(item.LineTotal ?? item.line_total ?? (qty * unit));
-            const cost = Number(item.EstimatedCost ?? item.estimated_cost ?? item.Cost ?? 0);
-            const gross = Number(item.GrossProfit ?? item.gross_profit ?? (lineTotal - cost));
-            const margin = Number(item.GrossMarginPct ?? item.gross_margin_pct ?? (lineTotal ? (gross / lineTotal) * 100 : 0));
+            const c = calcItem(item);
             return `<tr>
-              <td>${escapeHtml(service)}</td>
-              <td>${escapeHtml(product)}</td>
-              <td>${escapeHtml(region)}</td>
-              <td class="num">${formatNumber(qty)}</td>
-              <td class="num">${formatNumber(unit)}</td>
-              <td class="num">${formatNumber(lineTotal)}</td>
-              <td class="num">${formatNumber(cost)}</td>
-              <td class="num">${formatNumber(gross)}</td>
-              <td class="num">${lineTotal ? formatNumber(margin) + '%' : '-'}</td>
+              <td>${escapeHtml(getVal(item, ["ServiceCode","service_code","Service"], "-"))}</td>
+              <td>${escapeHtml(getVal(item, ["ProductCode","product_code","Product"], "-"))}</td>
+              <td>${escapeHtml(getVal(item, ["RegionCode","region_code","Region"], "-"))}</td>
+              <td class="num">${formatNumber(c.qty)}</td>
+              <td class="num">${formatNumber(c.unit)}</td>
+              <td class="num">${formatNumber(c.lineTotal)}</td>
+              <td class="num">${formatNumber(c.cost)}</td>
+              <td class="num">${formatNumber(c.gross)}</td>
+              <td class="num">${c.lineTotal ? formatNumber(c.margin) + "%" : "-"}</td>
             </tr>`;
-          }).join('');
+          }).join("");
+
           html += `<details>
             <summary>
-              <span>Work Order #${escapeHtml(orderId)}${ref ? ` <span class="muted-text">${escapeHtml(ref)}</span>` : ''}<br><span class="muted-text">Created: ${created}</span></span>
+              <span>Work Order #${escapeHtml(orderId)}${ref ? ` <span class="muted-text">${escapeHtml(ref)}</span>` : ""}<br><span class="muted-text">Created: ${created}</span></span>
               <span class="num">Total: ${formatNumber(total)}<br>ANF: ${formatNumber(anf)}</span>
             </summary>
             <div style="overflow-x:auto;">
@@ -853,10 +815,104 @@
         return html;
       }
 
-      function formatNumber(value) {
-        const n = Number(value);
-        if (!Number.isFinite(n)) return '-';
-        return n.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      function calcItem(item){
+        const qty = num(getVal(item, ["Quantity","quantity","qty","Qty"], 0));
+        const unit = num(getVal(item, ["UnitPrice","unit_price","unitPrice","Price"], 0));
+        const storedTotal = getVal(item, ["LineTotal","line_total","lineTotal"], "");
+        const lineTotal = storedTotal !== "" ? num(storedTotal) : qty * unit;
+        const cost = num(getVal(item, ["EstimatedCost","estimated_cost","Cost","cost"], 0));
+        const storedGross = getVal(item, ["GrossProfit","gross_profit","ANF","anf"], "");
+        const gross = storedGross !== "" ? num(storedGross) : lineTotal - cost;
+        const storedMargin = getVal(item, ["GrossMarginPct","gross_margin_pct"], "");
+        const margin = storedMargin !== "" ? num(storedMargin) : (lineTotal ? (gross / lineTotal) * 100 : 0);
+        return { qty, unit, lineTotal, cost, gross, margin };
+      }
+
+      function getLinkedObjectId(obj, explicitKeys){
+        for (const key of explicitKeys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
+        }
+        const dynamicKey = Object.keys(obj).find(key => {
+          const normal = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+          return normal === "workorderid" || normal === "workordersid";
+        });
+        return dynamicKey ? obj[dynamicKey] : "";
+      }
+
+      function getLinkedOrderId(order){ return getLinkedObjectId(order, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId","Id","ID","id"]); }
+      function getLinkedItemOrderId(item){ return getLinkedObjectId(item, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId"]); }
+
+      function exportCsv(){
+        const headers = ["ID","First Name","Surname","Company","Email","Phone","Status","Role","Job Title","Location","Account ID","Created","Updated"];
+        const lines = [headers.join(",")].concat(filteredRows.map(row => [
+          csvValue(row.id),
+          csvValue(row.firstName),
+          csvValue(row.surname),
+          csvValue(row.company),
+          csvValue(row.email),
+          csvValue(row.phone),
+          csvValue(row.status),
+          csvValue(row.role),
+          csvValue(row.jobTitle),
+          csvValue(row.location),
+          csvValue(row.accountId),
+          csvValue(row.created),
+          csvValue(row.updated)
+        ].join(",")));
+
+        const blob = new Blob([lines.join("\n")], { type:"text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "contacts.csv";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      function clearFilters(){
+        searchInput.value = "";
+        statusFilter.value = "all";
+        sortBy.value = "name-asc";
+        applyFiltersAndRender();
+      }
+
+      function renderStatusBadge(status){
+        const value = String(status || "Unknown");
+        const key = value.toLowerCase();
+        let cls = "status-info";
+        if (["active","open","enabled"].includes(key)) cls = "status-active";
+        if (["inactive","closed","disabled"].includes(key)) cls = "status-inactive";
+        if (["draft","pending"].includes(key)) cls = "status-draft";
+        return `<span class="status-badge ${cls}">${escapeHtml(value)}</span>`;
+      }
+
+      function getVal(obj, keys, fallback=""){
+        for (const key of keys) {
+          if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
+        }
+        return fallback;
+      }
+
+      function compareText(a, b){ return String(a || "").localeCompare(String(b || "")); }
+      function compareDate(a, b){ return parseDateSafe(a) - parseDateSafe(b); }
+      function parseDateSafe(value){ const d = new Date(value); return isNaN(d.getTime()) ? 0 : d.getTime(); }
+      function num(value){ const n = Number(value); return Number.isFinite(n) ? n : 0; }
+      function numberOrFallback(value, fallback){ return value === "" || value === null || value === undefined ? fallback : num(value); }
+      function formatNumber(value){ const n = Number(value); return Number.isFinite(n) ? n.toLocaleString("en-ZA", { minimumFractionDigits:2, maximumFractionDigits:2 }) : "-"; }
+      function formatDate(value){ if (!value) return "-"; const d = new Date(value); return isNaN(d.getTime()) ? escapeHtml(String(value)) : escapeHtml(d.toLocaleDateString("en-ZA", { day:"2-digit", month:"short", year:"numeric" })); }
+      function csvValue(value){ return `"${String(value ?? "").replaceAll('"', '""')}"`; }
+      function escapeHtml(str){ return String(str ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
+
+      function setLoading(message){
+        loadState.hidden = false;
+        loadState.innerHTML = `<span>${escapeHtml(message)}</span><span>Timeout: ${REQUEST_TIMEOUT_MS / 1000}s</span>`;
+      }
+
+      function clearLoading(){
+        loadState.hidden = true;
+        loadState.textContent = "";
       }
 
       loadData();

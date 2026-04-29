@@ -178,7 +178,7 @@
   const REQUEST_TIMEOUT_MS = 8000;
 
   const ENDPOINTS = {
-    orders: `${POSTGRES_ROOT}/work_orders?limit=${PAGE_SIZE}&order=CreateDateTime.desc`,
+    orders: `${POSTGRES_ROOT}/work_orders?limit=${PAGE_SIZE}`,
     items: `${POSTGRES_ROOT}/work_items?limit=5000`,
     accounts: `${POSTGRES_ROOT}/accounts?select=AccountId,AccountName,account_id,account_name,id,name&limit=5000`,
     contacts: `${POSTGRES_ROOT}/contacts?select=ContactId,ContactName,ContactSurname,ContactCompany,contact_id,contact_name,contact_surname,id,name,surname,company&limit=5000`

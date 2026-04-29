@@ -177,11 +177,21 @@
   const PAGE_SIZE = 500;
   const REQUEST_TIMEOUT_MS = 8000;
 
+  const API_ROOT = window.APP_CONFIG.API_BASE || POSTGRES_ROOT;
+
   const ENDPOINTS = {
     orders: `${POSTGRES_ROOT}/work_orders?limit=${PAGE_SIZE}`,
     items: `${POSTGRES_ROOT}/work_items?limit=5000`,
-    accounts: `${POSTGRES_ROOT}/accounts?select=AccountId,AccountName,account_id,account_name,id,name&limit=5000`,
-    contacts: `${POSTGRES_ROOT}/contacts?select=ContactId,ContactName,ContactSurname,ContactCompany,contact_id,contact_name,contact_surname,id,name,surname,company&limit=5000`
+    accounts: [
+      `${API_ROOT}/api_accounts`,
+      `${POSTGRES_ROOT}/accounts`,
+      `${API_ROOT}/accounts`
+    ],
+    contacts: [
+      `${API_ROOT}/api_contacts`,
+      `${POSTGRES_ROOT}/contacts`,
+      `${API_ROOT}/contacts`
+    ]
   };
 
   let rawRows = [];
@@ -207,8 +217,8 @@
       const [ordersResult, itemsResult, accountsResult, contactsResult] = await Promise.allSettled([
         fetchJson(ENDPOINTS.orders),
         fetchJson(ENDPOINTS.items),
-        fetchJson(ENDPOINTS.accounts),
-        fetchJson(ENDPOINTS.contacts)
+        fetchFirstAvailable(ENDPOINTS.accounts),
+        fetchFirstAvailable(ENDPOINTS.contacts)
       ]);
 
       if (ordersResult.status === "rejected") throw ordersResult.reason;
@@ -239,6 +249,12 @@
     } finally {
       clearLoading();
     }
+  }
+
+  async function fetchFirstAvailable(urls){
+    const requests = urls.filter(Boolean).map(url => fetchJson(url));
+    if (!requests.length) throw new Error("No lookup endpoints configured");
+    return Promise.any(requests);
   }
 
   async function fetchJson(url){

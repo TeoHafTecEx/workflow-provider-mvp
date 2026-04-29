@@ -4,171 +4,337 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Work Orders – TGC CRM</title>
+<link rel="stylesheet" href="styles.css" />
 <style>
-:root{ --page-bg:#f4f7fb; }
-*,*::before,*::after{ box-sizing:border-box; }
-html,body{ margin:0; padding:0; width:100%; overflow-x:hidden; }
-body{ background:var(--page-bg); font-family:Inter,system-ui,Segoe UI,Roboto,Arial,sans-serif; }
-#crm-page[data-theme="dark"]{ --main:#FFFFFF; --secondary:#0A1826; --accent:#D3A911; --panel:#0f2234; --border:#133147; --muted:#9fb3c8; --head:#0e1d2b; --btnText:#0A1826; --shadow:0 6px 20px rgba(0,0,0,.25); }
-#crm-page[data-theme="light"]{ --main:#0A1826; --secondary:#FFFFFF; --accent:#D3A911; --panel:#ffffff; --border:#e6ecf3; --muted:#5b6b7a; --head:#f6f8fb; --btnText:#0A1826; --shadow:0 6px 18px rgba(10,24,38,.08); }
-#crm-page{ background:var(--secondary); color:var(--main); width:100%; min-height:100vh; padding:20px 14px 40px; }
-.wrapper{ width:100%; max-width:1400px; margin:0 auto; }
-.brandbar{ height:4px; background:linear-gradient(90deg,#fff 0,#fff 33%,#0A1826 33%,#0A1826 66%,#D3A911 66%); border-radius:4px; margin:0 auto 16px; width:100%; }
-.row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-.spacer{ flex:1; }
-.card{ background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:16px; box-shadow:var(--shadow); display:flex; flex-direction:column; gap:12px; width:100%; }
-.table-wrap{ width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; border:1px solid var(--border); border-radius:12px; }
-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
-thead th{ background:var(--head); color:var(--main); font-weight:700; padding:12px 10px; border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-td{ background:var(--panel); padding:10px 8px; border-bottom:1px solid var(--border); vertical-align:middle; overflow:hidden; text-overflow:ellipsis; }
-button,a.btn{ border:1px solid var(--border); border-radius:10px; padding:10px 12px; font-size:14px; background:transparent; color:var(--accent); cursor:pointer; text-decoration:none; transition:background .15s ease,color .15s ease; }
-button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
-.num{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
-.muted-text{ color:var(--muted); font-size:12px; }
-.work-items-wrap{ padding:0; border:0; }
-.work-items-table{ width:100%; border-collapse:collapse; table-layout:fixed; }
+  .brandbar{
+    height:4px;
+    background:linear-gradient(90deg,#fff 0,#fff 33%,#0A1826 33%,#0A1826 66%,#D3A911 66%);
+    border-radius:4px;
+    margin:0 0 16px;
+    width:100%;
+  }
+
+  .workorder-table{ min-width:1180px; }
+  .workorder-table th,
+  .workorder-table td{ vertical-align:top; }
+
+  .num{
+    text-align:right;
+    font-variant-numeric:tabular-nums;
+    white-space:nowrap;
+  }
+
+  .compact-note{
+    margin-top:8px;
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  .wo-main{
+    font-weight:800;
+    color:var(--main);
+  }
+
+  .wo-sub{
+    display:block;
+    margin-top:4px;
+    font-size:12px;
+    color:var(--muted);
+  }
+
+  .items-row td{
+    background:var(--surface-2, var(--panel));
+    padding:0;
+  }
+
+  .items-panel{
+    padding:14px;
+  }
+
+  .items-table{
+    width:100%;
+    min-width:920px;
+    border-collapse:collapse;
+    table-layout:auto;
+  }
+
+  .items-table th,
+  .items-table td{
+    padding:9px 10px;
+  }
+
+  .toggle-btn{
+    min-height:32px;
+    padding:7px 10px;
+    font-size:12px;
+  }
+
+  .loading-bar{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    color:var(--muted);
+    font-size:13px;
+  }
+
+  @media (max-width:900px){
+    .grid.grid-3{ grid-template-columns:1fr; }
+  }
 </style>
 </head>
 <body>
 <div id="crm-page" data-theme="light">
   <div class="wrapper">
     <div class="brandbar" aria-hidden="true"></div>
+
     <div class="row">
-      <h1 style="margin:0;font-size:24px;">Work Orders</h1>
+      <div>
+        <h1 style="margin:0;font-size:24px;">Work Orders</h1>
+        <p class="muted-text">Optimized loading: one request per resource, parallel fetching, cached lookup maps, and no per-row API waterfall.</p>
+      </div>
       <div class="spacer"></div>
-      <a href="index.html" class="btn" style="margin-right:8px;">🏠 Home</a>
-      <button id="themeToggle" class="btn" type="button">Light / Dark</button>
-      <button id="refresh" class="btn" type="button">Refresh</button>
+      <a href="index.html" class="btn">🏠 Home</a>
+      <button id="themeToggle" type="button">Light / Dark</button>
+      <button id="refreshBtn" type="button">Refresh</button>
     </div>
-    <div class="card" style="margin-top:16px;">
-      <div class="table-wrap"><table id="dataTable"></table></div>
+
+    <div class="grid grid-3">
+      <div class="card">
+        <label>Total Work Orders</label>
+        <h2 id="statTotal">0</h2>
+      </div>
+      <div class="card">
+        <label>Total Value</label>
+        <h2 id="statValue">0.00</h2>
+      </div>
+      <div class="card">
+        <label>Total ANF</label>
+        <h2 id="statAnf">0.00</h2>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="grid grid-3">
+        <div>
+          <label for="searchInput">Search</label>
+          <input id="searchInput" type="text" placeholder="Search work order, account, contact, product, service..." />
+        </div>
+        <div>
+          <label for="statusFilter">Status</label>
+          <select id="statusFilter">
+            <option value="all">All statuses</option>
+          </select>
+        </div>
+        <div>
+          <label for="sortBy">Sort By</label>
+          <select id="sortBy">
+            <option value="created-desc">Newest created</option>
+            <option value="created-asc">Oldest created</option>
+            <option value="total-desc">Highest total</option>
+            <option value="total-asc">Lowest total</option>
+            <option value="anf-desc">Highest ANF</option>
+            <option value="anf-asc">Lowest ANF</option>
+          </select>
+        </div>
+      </div>
+      <div class="actions">
+        <button id="clearFiltersBtn" type="button">Clear Filters</button>
+        <button id="exportBtn" type="button">Export CSV</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div id="loadState" class="loading-bar" hidden></div>
+      <div class="table-wrap">
+        <table id="dataTable" class="workorder-table"></table>
+      </div>
+      <div id="tableNote" class="compact-note"></div>
     </div>
   </div>
 </div>
+
 <script src="config.js"></script>
 <script>
 (function(){
-  const root = document.getElementById('crm-page');
-  const table = document.getElementById('dataTable');
-  const API_ROOT = window.APP_CONFIG.API_BASE || window.APP_CONFIG.POSTGRES_API_BASE || '';
-  const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || API_ROOT;
-  const WORK_ORDERS_URL = `${POSTGRES_ROOT}/work_orders`;
-  const WORK_ITEMS_URL = `${POSTGRES_ROOT}/work_items`;
-  const ACCOUNT_URLS = [
-    `${API_ROOT}/api_accounts`,
-    `${POSTGRES_ROOT}/accounts`,
-    `${API_ROOT}/accounts`
-  ];
-  const CONTACT_URLS = [
-    `${API_ROOT}/api_contacts`,
-    `${POSTGRES_ROOT}/contacts`,
-    `${API_ROOT}/contacts`
-  ];
+  const root = document.getElementById("crm-page");
+  const table = document.getElementById("dataTable");
+  const loadState = document.getElementById("loadState");
+  const tableNote = document.getElementById("tableNote");
 
-  document.getElementById('themeToggle').onclick = () => {
-    root.dataset.theme = root.dataset.theme === 'dark' ? 'light' : 'dark';
+  const statTotal = document.getElementById("statTotal");
+  const statValue = document.getElementById("statValue");
+  const statAnf = document.getElementById("statAnf");
+
+  const searchInput = document.getElementById("searchInput");
+  const statusFilter = document.getElementById("statusFilter");
+  const sortBy = document.getElementById("sortBy");
+  const refreshBtn = document.getElementById("refreshBtn");
+  const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+  const exportBtn = document.getElementById("exportBtn");
+
+  const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || window.APP_CONFIG.API_BASE;
+  const PAGE_SIZE = 500;
+  const REQUEST_TIMEOUT_MS = 8000;
+
+  const ENDPOINTS = {
+    orders: `${POSTGRES_ROOT}/work_orders?limit=${PAGE_SIZE}&order=CreateDateTime.desc`,
+    items: `${POSTGRES_ROOT}/work_items?limit=5000`,
+    accounts: `${POSTGRES_ROOT}/accounts?select=AccountId,AccountName,account_id,account_name,id,name&limit=5000`,
+    contacts: `${POSTGRES_ROOT}/contacts?select=ContactId,ContactName,ContactSurname,ContactCompany,contact_id,contact_name,contact_surname,id,name,surname,company&limit=5000`
   };
-  document.getElementById('refresh').onclick = loadData;
+
+  let rawRows = [];
+  let filteredRows = [];
+
+  document.getElementById("themeToggle").addEventListener("click", () => {
+    root.dataset.theme = root.dataset.theme === "dark" ? "light" : "dark";
+  });
+
+  refreshBtn.addEventListener("click", loadData);
+  clearFiltersBtn.addEventListener("click", clearFilters);
+  exportBtn.addEventListener("click", exportCsv);
+  searchInput.addEventListener("input", applyFiltersAndRender);
+  statusFilter.addEventListener("change", applyFiltersAndRender);
+  sortBy.addEventListener("change", applyFiltersAndRender);
 
   async function loadData(){
-    table.innerHTML = '<thead><tr><th>Loading work orders...</th></tr></thead>';
+    setLoading("Loading work orders...");
+    table.innerHTML = "<thead><tr><th>Loading work orders...</th></tr></thead>";
+    tableNote.textContent = "";
+
     try {
-      const orders = rowsFromResult(await fetchJson(WORK_ORDERS_URL));
-      let accounts = [];
-      let contacts = [];
-      try {
-        accounts = rowsFromResult(await fetchFirstAvailable(ACCOUNT_URLS));
-      } catch (err) {
-        console.warn('Account names could not be loaded. Account IDs will be shown instead.', err);
-      }
-      try {
-        contacts = rowsFromResult(await fetchFirstAvailable(CONTACT_URLS));
-      } catch (err) {
-        console.warn('Contact names could not be loaded. Contact IDs will be shown instead.', err);
-      }
-      let items = [];
-      try {
-        items = rowsFromResult(await fetchJson(WORK_ITEMS_URL));
-      } catch (err) {
-        console.warn('Work items endpoint is not exposed yet. Work orders will load without nested items.', err);
-      }
-      const ordersWithItems = await Promise.all(orders.map(async order => {
-        const orderId = getOrderId(order);
-        return {
-          order,
-          items: await fetchWorkItemsForOrder(orderId, items)
-        };
-      }));
-      buildTable(ordersWithItems, buildAccountMap(accounts), buildContactMap(contacts));
-    } catch(err) {
+      const [ordersResult, itemsResult, accountsResult, contactsResult] = await Promise.allSettled([
+        fetchJson(ENDPOINTS.orders),
+        fetchJson(ENDPOINTS.items),
+        fetchJson(ENDPOINTS.accounts),
+        fetchJson(ENDPOINTS.contacts)
+      ]);
+
+      if (ordersResult.status === "rejected") throw ordersResult.reason;
+
+      const orders = rowsFromResult(ordersResult.value);
+      const items = itemsResult.status === "fulfilled" ? rowsFromResult(itemsResult.value) : [];
+      const accounts = accountsResult.status === "fulfilled" ? rowsFromResult(accountsResult.value) : [];
+      const contacts = contactsResult.status === "fulfilled" ? rowsFromResult(contactsResult.value) : [];
+
+      const itemMap = groupItemsByOrder(items);
+      const accountMap = buildAccountMap(accounts);
+      const contactMap = buildContactMap(contacts);
+
+      rawRows = orders.map(order => normalizeWorkOrder(order, itemMap, accountMap, contactMap));
+      populateStatusFilter(rawRows);
+      applyFiltersAndRender();
+
+      const warnings = [];
+      if (itemsResult.status === "rejected") warnings.push("work items unavailable");
+      if (accountsResult.status === "rejected") warnings.push("account names unavailable");
+      if (contactsResult.status === "rejected") warnings.push("contact names unavailable");
+      tableNote.textContent = warnings.length
+        ? `${filteredRows.length} work order${filteredRows.length === 1 ? "" : "s"} shown. Note: ${warnings.join(", ")}.`
+        : `${filteredRows.length} work order${filteredRows.length === 1 ? "" : "s"} shown.`;
+    } catch (err) {
       table.innerHTML = `<thead><tr><th>Error: ${escapeHtml(err.message)}</th></tr></thead>`;
       console.error(err);
+    } finally {
+      clearLoading();
     }
   }
 
   async function fetchJson(url){
-    const res = await fetch(url);
-    const text = await res.text();
-    let result;
-    try { result = text ? JSON.parse(text) : []; }
-    catch (_) { throw new Error(`${url}: endpoint returned non-JSON response`); }
-    if (!res.ok || result.ok === false) throw new Error(`${url}: ${result.error || res.status}`);
-    return result;
-  }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
-  async function fetchFirstAvailable(urls){
-    const errors = [];
-    for (const url of urls) {
-      try { return await fetchJson(url); }
-      catch (err) { errors.push(`${url}: ${err.message}`); }
+    try {
+      const res = await fetch(url, {
+        signal: controller.signal,
+        headers: { "Accept": "application/json" }
+      });
+      const text = await res.text();
+      let result;
+      try {
+        result = text ? JSON.parse(text) : [];
+      } catch (_) {
+        throw new Error(`${url}: endpoint returned non-JSON response`);
+      }
+      if (!res.ok || result.ok === false) {
+        throw new Error(`${url}: ${result.error || res.status + " " + res.statusText}`);
+      }
+      return result;
+    } catch (err) {
+      if (err.name === "AbortError") throw new Error(`${url}: request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+      throw err;
+    } finally {
+      clearTimeout(timer);
     }
-    throw new Error(errors.join(' | '));
   }
 
   function rowsFromResult(result){
     if (Array.isArray(result)) return result;
-    if (Array.isArray(result.rows)) return result.rows;
-    if (Array.isArray(result.data)) return result.data;
+    if (Array.isArray(result?.rows)) return result.rows;
+    if (Array.isArray(result?.data)) return result.data;
     return [];
   }
 
-  async function fetchWorkItemsForOrder(orderId, allItems){
-    const fromAll = allItems.filter(item => String(getItemOrderId(item)) === String(orderId));
-    if (fromAll.length) return fromAll;
-
-    try {
-      const filtered = rowsFromResult(await fetchJson(`${WORK_ITEMS_URL}?work_order_id=eq.${encodeURIComponent(orderId)}`));
-      if (filtered.length) return filtered;
-    } catch (err) {
-      console.warn('Filtered work item fetch failed for work order', orderId, err);
-    }
-
-    return [];
-  }
-
-  function getObjectId(obj, explicitKeys){
-    for (const key of explicitKeys) {
-      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
-    }
-    const dynamicKey = Object.keys(obj).find(key => {
-      const normal = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      return normal === 'workorderid' || normal === 'workordersid';
+  function groupItemsByOrder(items){
+    const map = new Map();
+    items.forEach(item => {
+      const orderId = clean(getItemOrderId(item));
+      if (!orderId) return;
+      if (!map.has(orderId)) map.set(orderId, []);
+      map.get(orderId).push(item);
     });
-    return dynamicKey ? obj[dynamicKey] : '';
+    return map;
   }
-  function getOrderId(order){ return getObjectId(order, ['work_order_id','WorkOrderId','WorkOrderID','workOrderId','id','Id','ID']); }
-  function getItemOrderId(item){ return getObjectId(item, ['work_order_id','WorkOrderId','WorkOrderID','workOrderId']); }
-  function getVal(obj, keys, fallback=''){
-    for (const key of keys) if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
-    return fallback;
+
+  function normalizeWorkOrder(order, itemMap, accountMap, contactMap){
+    const orderId = clean(getOrderId(order));
+    const accountId = clean(getVal(order, ["account_id","AccountId","accountId"], ""));
+    const contactId = clean(getVal(order, ["contact_id","ContactId","contactId"], ""));
+    const items = itemMap.get(orderId) || [];
+    const fallbackTotal = items.reduce((sum, item) => sum + calcItem(item).lineTotal, 0);
+    const fallbackAnf = items.reduce((sum, item) => sum + calcItem(item).gross, 0);
+    const total = numberOrFallback(getVal(order, ["total","Total","line_total","LineTotal"], ""), fallbackTotal);
+    const anf = numberOrFallback(getVal(order, ["anf","ANF","gross_profit","GrossProfit","grossProfit"], ""), fallbackAnf);
+    const status = clean(getVal(order, ["status","Status","WorkOrderStatus","work_order_status"], "Unknown")) || "Unknown";
+    const created = getVal(order, ["created_at","CreateDateTime","CreatedDate","created","CreatedOn"], "");
+    const process = clean(getVal(order, ["process","Process","ProcessStep","process_step"], "-"));
+    const ref = clean(getVal(order, ["EntityRefNo","entity_ref_no","RefNo","reference","Reference"], ""));
+    const accountName = accountMap.get(accountId) || (accountId ? `Account ${accountId}` : "-");
+    const contactName = contactMap.get(contactId) || (contactId ? `Contact ${contactId}` : "-");
+
+    return {
+      raw: order,
+      orderId,
+      ref,
+      accountId,
+      accountName,
+      contactId,
+      contactName,
+      total,
+      anf,
+      status,
+      created,
+      process,
+      items,
+      searchText: buildSearchText(order, items, [orderId, ref, accountId, accountName, contactId, contactName, status, process])
+    };
   }
-  function clean(value){ return String(value ?? '').trim(); }
+
+  function buildSearchText(order, items, extra){
+    const itemText = items.map(item => [
+      getVal(item, ["service_code","ServiceCode","service","Service"], ""),
+      getVal(item, ["product_code","ProductCode","product","Product"], ""),
+      getVal(item, ["region_code","RegionCode","region","Region"], "")
+    ].join(" ")).join(" ");
+    return [...extra, itemText].join(" ").toLowerCase();
+  }
 
   function buildAccountMap(accounts){
     const map = new Map();
     accounts.forEach(account => {
-      const id = clean(getVal(account, ['account_id','AccountId','accountId','id','Id','ID'], ''));
-      const name = clean(getVal(account, ['account_name','AccountName','accountName','name','Name'], ''));
+      const id = clean(getVal(account, ["account_id","AccountId","accountId","id","Id","ID"], ""));
+      const name = clean(getVal(account, ["account_name","AccountName","accountName","name","Name"], ""));
       if (id) map.set(id, name || `Account ${id}`);
     });
     return map;
@@ -177,55 +343,73 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
   function buildContactMap(contacts){
     const map = new Map();
     contacts.forEach(contact => {
-      const id = clean(getVal(contact, ['contact_id','ContactId','contactId','id','Id','ID'], ''));
-      const firstName = clean(getVal(contact, ['contact_name','ContactName','contactName','first_name','FirstName','name','Name'], ''));
-      const surname = clean(getVal(contact, ['contact_surname','ContactSurname','contactSurname','surname','Surname','last_name','LastName'], ''));
-      const company = clean(getVal(contact, ['contact_company','ContactCompany','company','Company'], ''));
-      const name = [firstName, surname].filter(Boolean).join(' ').trim() || company;
+      const id = clean(getVal(contact, ["contact_id","ContactId","contactId","id","Id","ID"], ""));
+      const firstName = clean(getVal(contact, ["contact_name","ContactName","contactName","first_name","FirstName","name","Name"], ""));
+      const surname = clean(getVal(contact, ["contact_surname","ContactSurname","contactSurname","surname","Surname","last_name","LastName"], ""));
+      const company = clean(getVal(contact, ["contact_company","ContactCompany","company","Company"], ""));
+      const name = [firstName, surname].filter(Boolean).join(" ").trim() || company;
       if (id) map.set(id, name || `Contact ${id}`);
     });
     return map;
   }
 
-  function linkedName(id, map, label){
-    const cleanId = clean(id);
-    if (!cleanId || cleanId === '-') return '-';
-    const name = map.get(cleanId);
-    return name || `${label} ${cleanId}`;
-  }
-  function num(value){ const n = Number(value); return Number.isFinite(n) ? n : 0; }
-  function formatNumber(value){ const n = Number(value); return Number.isFinite(n) ? n.toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2}) : '-'; }
-  function formatDate(value){ if(!value) return '-'; const d = new Date(value); return isNaN(d.getTime()) ? escapeHtml(String(value)) : escapeHtml(d.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})); }
-
-  function calcItem(item){
-    const qty = num(getVal(item, ['quantity','Quantity','qty','Qty'], 0));
-    const unit = num(getVal(item, ['unit_price','UnitPrice','unitPrice','price','Price'], 0));
-    const storedTotal = getVal(item, ['line_total','LineTotal','lineTotal'], '');
-    const lineTotal = storedTotal !== '' ? num(storedTotal) : qty * unit;
-    const cost = num(getVal(item, ['estimated_cost','EstimatedCost','estimatedCost','cost','Cost'], 0));
-    const storedGross = getVal(item, ['gross_profit','GrossProfit','grossProfit','anf','ANF'], '');
-    const gross = storedGross !== '' ? num(storedGross) : lineTotal - cost;
-    const storedMargin = getVal(item, ['gross_margin_pct','GrossMarginPct','grossMarginPct'], '');
-    const margin = storedMargin !== '' ? num(storedMargin) : (lineTotal ? (gross / lineTotal) * 100 : 0);
-    return { qty, unit, lineTotal, cost, gross, margin };
+  function populateStatusFilter(rows){
+    const current = statusFilter.value || "all";
+    const statuses = [...new Set(rows.map(r => r.status).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+    statusFilter.innerHTML = `<option value="all">All statuses</option>` +
+      statuses.map(status => `<option value="${escapeHtml(status.toLowerCase())}">${escapeHtml(status)}</option>`).join("");
+    statusFilter.value = [...statusFilter.options].some(o => o.value === current) ? current : "all";
   }
 
-  function buildTable(data, accountMap = new Map(), contactMap = new Map()){
-    if (!data.length) { table.innerHTML = '<thead><tr><th>No work orders available</th></tr></thead>'; return; }
-    const body = data.map(({order,items},idx)=>{
-      const orderId = getOrderId(order) || '-';
-      const accountId = getVal(order,['account_id','AccountId','accountId'],'-');
-      const contactId = getVal(order,['contact_id','ContactId','contactId'],'-');
-      const accountName = linkedName(accountId, accountMap, 'Account');
-      const contactName = linkedName(contactId, contactMap, 'Contact');
-      const total = getVal(order, ['total','Total'], '') || items.reduce((sum,item)=>sum+calcItem(item).lineTotal,0);
-      const anf = getVal(order, ['anf','ANF','gross_profit','GrossProfit'], '') || items.reduce((sum,item)=>sum+calcItem(item).gross,0);
-      const rows = items.map(item => {
+  function applyFiltersAndRender(){
+    const search = searchInput.value.trim().toLowerCase();
+    const status = statusFilter.value;
+    const sort = sortBy.value;
+
+    filteredRows = rawRows.filter(row => {
+      const matchesSearch = !search || row.searchText.includes(search);
+      const matchesStatus = status === "all" || row.status.toLowerCase() === status;
+      return matchesSearch && matchesStatus;
+    });
+
+    filteredRows.sort((a, b) => {
+      switch (sort) {
+        case "created-asc": return compareDate(a.created, b.created);
+        case "total-desc": return b.total - a.total;
+        case "total-asc": return a.total - b.total;
+        case "anf-desc": return b.anf - a.anf;
+        case "anf-asc": return a.anf - b.anf;
+        case "created-desc":
+        default: return compareDate(b.created, a.created);
+      }
+    });
+
+    renderStats(filteredRows);
+    renderTable(filteredRows);
+    tableNote.textContent = `${filteredRows.length} work order${filteredRows.length === 1 ? "" : "s"} shown.`;
+  }
+
+  function renderStats(rows){
+    statTotal.textContent = rows.length;
+    statValue.textContent = formatNumber(rows.reduce((sum, row) => sum + row.total, 0));
+    statAnf.textContent = formatNumber(rows.reduce((sum, row) => sum + row.anf, 0));
+  }
+
+  function renderTable(rows){
+    if (!rows.length) {
+      table.innerHTML = `
+        <thead><tr><th>Work Order</th><th>Account</th><th>Contact</th><th>Status</th><th>Total</th><th>ANF</th><th>Created</th><th>Items</th></tr></thead>
+        <tbody><tr><td colspan="8"><div class="empty-state">No work orders match the current filters.</div></td></tr></tbody>`;
+      return;
+    }
+
+    const body = rows.map(row => {
+      const itemRows = row.items.map(item => {
         const c = calcItem(item);
         return `<tr>
-          <td>${escapeHtml(getVal(item,['service_code','ServiceCode','service','Service'],'-'))}</td>
-          <td>${escapeHtml(getVal(item,['product_code','ProductCode','product','Product'],'-'))}</td>
-          <td>${escapeHtml(getVal(item,['region_code','RegionCode','region','Region'],'-'))}</td>
+          <td>${escapeHtml(getVal(item,["service_code","ServiceCode","service","Service"],"-"))}</td>
+          <td>${escapeHtml(getVal(item,["product_code","ProductCode","product","Product"],"-"))}</td>
+          <td>${escapeHtml(getVal(item,["region_code","RegionCode","region","Region"],"-"))}</td>
           <td class="num">${formatNumber(c.qty)}</td>
           <td class="num">${formatNumber(c.unit)}</td>
           <td class="num">${formatNumber(c.lineTotal)}</td>
@@ -233,38 +417,142 @@ button:hover,a.btn:hover{ background:var(--accent); color:var(--btnText); }
           <td class="num">${formatNumber(c.gross)}</td>
           <td class="num">${formatNumber(c.margin)}%</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="9">No items found.</td></tr>';
-      return `<tr class="wo-summary">
-        <td><strong>${escapeHtml(orderId)}</strong><br><span class="muted-text">${escapeHtml(getVal(order,['status','Status'],'-'))}</span></td>
-        <td><strong>${escapeHtml(accountName)}</strong>${accountId && accountId !== '-' ? `<br><span class="muted-text">ID: ${escapeHtml(accountId)}</span>` : ''}</td>
-        <td><strong>${escapeHtml(contactName)}</strong>${contactId && contactId !== '-' ? `<br><span class="muted-text">ID: ${escapeHtml(contactId)}</span>` : ''}</td>
-        <td class="num">${formatNumber(total)}</td>
-        <td class="num">${formatNumber(anf)}</td>
-        <td>${formatDate(getVal(order,['created_at','CreateDateTime','CreatedDate','created'],'') )}</td>
-        <td>${escapeHtml(getVal(order,['process','Process'],'-'))}</td>
-        <td style="text-align:center"><button type="button" class="toggle-btn">▸</button></td>
+      }).join("") || `<tr><td colspan="9">No items found for this work order.</td></tr>`;
+
+      return `<tr class="summary-row">
+        <td><div class="wo-main">${escapeHtml(row.orderId || "-")}</div>${row.ref ? `<span class="wo-sub">${escapeHtml(row.ref)}</span>` : ""}</td>
+        <td><div class="wo-main">${escapeHtml(row.accountName)}</div>${row.accountId ? `<span class="wo-sub">ID: ${escapeHtml(row.accountId)}</span>` : ""}</td>
+        <td><div class="wo-main">${escapeHtml(row.contactName)}</div>${row.contactId ? `<span class="wo-sub">ID: ${escapeHtml(row.contactId)}</span>` : ""}</td>
+        <td>${renderStatusBadge(row.status)}</td>
+        <td class="num">${formatNumber(row.total)}</td>
+        <td class="num">${formatNumber(row.anf)}</td>
+        <td>${formatDate(row.created)}</td>
+        <td style="text-align:center"><button type="button" class="toggle-btn" aria-expanded="false">View ${row.items.length}</button></td>
       </tr>
-      <tr class="wo-items-row" style="display:none">
-        <td colspan="8" class="work-items-wrap">
-          <table class="work-items-table">
-            <thead><tr><th>Service</th><th>Product</th><th>Region</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th><th class="num">Cost</th><th class="num">ANF</th><th class="num">Margin %</th></tr></thead>
-            <tbody>${rows}</tbody>
-          </table>
+      <tr class="items-row" hidden>
+        <td colspan="8">
+          <div class="items-panel">
+            <div class="table-wrap">
+              <table class="items-table">
+                <thead><tr><th>Service</th><th>Product</th><th>Region</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Line Total</th><th class="num">Cost</th><th class="num">ANF</th><th class="num">Margin</th></tr></thead>
+                <tbody>${itemRows}</tbody>
+              </table>
+            </div>
+          </div>
         </td>
       </tr>`;
-    }).join('');
-    table.innerHTML = `<thead><tr><th>Work Order</th><th>Account</th><th>Contact</th><th class="num">Total</th><th class="num">ANF</th><th>Created</th><th>Process</th><th>Items</th></tr></thead><tbody>${body}</tbody>`;
-    table.querySelectorAll('.toggle-btn').forEach(btn=>{
-      btn.addEventListener('click',()=>{
-        const row = btn.closest('tr').nextElementSibling;
-        const open = row.style.display !== 'none';
-        row.style.display = open ? 'none' : '';
-        btn.textContent = open ? '▸' : '▾';
+    }).join("");
+
+    table.innerHTML = `
+      <thead><tr><th>Work Order</th><th>Account</th><th>Contact</th><th>Status</th><th class="num">Total</th><th class="num">ANF</th><th>Created</th><th>Items</th></tr></thead>
+      <tbody>${body}</tbody>`;
+
+    table.querySelectorAll(".toggle-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const detailRow = btn.closest("tr").nextElementSibling;
+        const opening = detailRow.hidden;
+        detailRow.hidden = !opening;
+        btn.setAttribute("aria-expanded", String(opening));
+        btn.textContent = opening ? "Hide" : btn.textContent.replace("Hide", "View");
+        if (!opening) btn.textContent = `View ${detailRow.querySelectorAll("tbody tr").length}`;
       });
     });
   }
 
-  function escapeHtml(value){ return String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
+  function renderStatusBadge(status){
+    const value = clean(status) || "Unknown";
+    const key = value.toLowerCase();
+    let cls = "status-info";
+    if (["active","open","approved","completed"].includes(key)) cls = "status-active";
+    if (["inactive","closed","cancelled","canceled"].includes(key)) cls = "status-inactive";
+    if (["draft","pending","in progress"].includes(key)) cls = "status-draft";
+    return `<span class="status-badge ${cls}">${escapeHtml(value)}</span>`;
+  }
+
+  function calcItem(item){
+    const qty = num(getVal(item, ["quantity","Quantity","qty","Qty"], 0));
+    const unit = num(getVal(item, ["unit_price","UnitPrice","unitPrice","price","Price"], 0));
+    const storedTotal = getVal(item, ["line_total","LineTotal","lineTotal"], "");
+    const lineTotal = storedTotal !== "" ? num(storedTotal) : qty * unit;
+    const cost = num(getVal(item, ["estimated_cost","EstimatedCost","estimatedCost","cost","Cost"], 0));
+    const storedGross = getVal(item, ["gross_profit","GrossProfit","grossProfit","anf","ANF"], "");
+    const gross = storedGross !== "" ? num(storedGross) : lineTotal - cost;
+    const storedMargin = getVal(item, ["gross_margin_pct","GrossMarginPct","grossMarginPct"], "");
+    const margin = storedMargin !== "" ? num(storedMargin) : (lineTotal ? (gross / lineTotal) * 100 : 0);
+    return { qty, unit, lineTotal, cost, gross, margin };
+  }
+
+  function exportCsv(){
+    const headers = ["Work Order","Reference","Account","Contact","Status","Total","ANF","Created","Item Count"];
+    const lines = [headers.join(",")].concat(filteredRows.map(row => [
+      csvValue(row.orderId),
+      csvValue(row.ref),
+      csvValue(row.accountName),
+      csvValue(row.contactName),
+      csvValue(row.status),
+      csvValue(row.total),
+      csvValue(row.anf),
+      csvValue(row.created),
+      csvValue(row.items.length)
+    ].join(",")));
+
+    const blob = new Blob([lines.join("\n")], { type:"text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "workorders.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function clearFilters(){
+    searchInput.value = "";
+    statusFilter.value = "all";
+    sortBy.value = "created-desc";
+    applyFiltersAndRender();
+  }
+
+  function getObjectId(obj, explicitKeys){
+    for (const key of explicitKeys) {
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
+    }
+    const dynamicKey = Object.keys(obj).find(key => {
+      const normal = key.toLowerCase().replace(/[^a-z0-9]/g, "");
+      return normal === "workorderid" || normal === "workordersid";
+    });
+    return dynamicKey ? obj[dynamicKey] : "";
+  }
+
+  function getOrderId(order){ return getObjectId(order, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId","id","Id","ID"]); }
+  function getItemOrderId(item){ return getObjectId(item, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId"]); }
+  function getVal(obj, keys, fallback=""){
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
+    }
+    return fallback;
+  }
+
+  function clean(value){ return String(value ?? "").trim(); }
+  function num(value){ const n = Number(value); return Number.isFinite(n) ? n : 0; }
+  function numberOrFallback(value, fallback){ return value === "" || value === null || value === undefined ? fallback : num(value); }
+  function compareDate(a, b){ return parseDateSafe(a) - parseDateSafe(b); }
+  function parseDateSafe(value){ const d = new Date(value); return isNaN(d.getTime()) ? 0 : d.getTime(); }
+  function formatNumber(value){ const n = Number(value); return Number.isFinite(n) ? n.toLocaleString("en-ZA", { minimumFractionDigits:2, maximumFractionDigits:2 }) : "-"; }
+  function formatDate(value){ if (!value) return "-"; const d = new Date(value); return isNaN(d.getTime()) ? escapeHtml(String(value)) : escapeHtml(d.toLocaleDateString("en-ZA", { day:"2-digit", month:"short", year:"numeric" })); }
+  function csvValue(value){ return `"${String(value ?? "").replaceAll('"', '""')}"`; }
+  function escapeHtml(value){ return String(value ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
+
+  function setLoading(message){
+    loadState.hidden = false;
+    loadState.innerHTML = `<span>${escapeHtml(message)}</span><span>Timeout: ${REQUEST_TIMEOUT_MS / 1000}s</span>`;
+  }
+
+  function clearLoading(){
+    loadState.hidden = true;
+    loadState.textContent = "";
+  }
 
   loadData();
 })();

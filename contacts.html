@@ -99,13 +99,13 @@
       <div class="row">
         <div>
           <h1>Contacts</h1>
-          <p class="muted-text">Optimized loading: fast contacts list, cached linked work orders, and no repeated full-table fetch per contact.</p>
+          <p class="muted-text">Contacts are created through the workflow start endpoint. Direct database writes are disabled.</p>
         </div>
         <div class="spacer"></div>
         <a href="index.html" class="btn">🏠 Home</a>
         <button id="themeToggle" type="button">Light / Dark</button>
         <button id="refreshBtn" type="button">Refresh</button>
-        <button id="newContactBtn" type="button">+ New Contact</button>
+        <button id="newContactBtn" type="button">+ New Lead</button>
       </div>
 
       <div class="grid grid-3">
@@ -114,7 +114,7 @@
           <h2 id="statTotal">0</h2>
         </div>
         <div class="card">
-          <label>Active Contacts</label>
+          <label>Engagement / Active</label>
           <h2 id="statActive">0</h2>
         </div>
         <div class="card">
@@ -134,9 +134,11 @@
             <label for="statusFilter">Status</label>
             <select id="statusFilter">
               <option value="all">All statuses</option>
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="draft">Draft</option>
+              <option value="engagement">Engagement</option>
+              <option value="commercialization">Commercialization</option>
+              <option value="reactivation">Reactivation</option>
+              <option value="converted">Converted</option>
+              <option value="dead">Dead</option>
               <option value="unknown">Unknown</option>
             </select>
           </div>
@@ -173,8 +175,8 @@
       <div class="card">
         <div class="row">
           <div>
-            <h2 id="modalTitle">New Contact</h2>
-            <p class="muted-text" id="modalSubtitle">Create a new contact record</p>
+            <h2 id="modalTitle">New Lead</h2>
+            <p class="muted-text" id="modalSubtitle">Create a workflow-owned lead</p>
           </div>
           <div class="spacer"></div>
           <button id="closeModalBtn" type="button">Close</button>
@@ -201,33 +203,13 @@
             </div>
 
             <div>
-              <label for="contactIndustry">Industry</label>
-              <input id="contactIndustry" type="text" />
-            </div>
-
-            <div>
               <label for="contactEmail">Email</label>
-              <input id="contactEmail" type="email" />
+              <input id="contactEmail" type="email" required />
             </div>
 
             <div>
               <label for="contactPhone">Phone</label>
               <input id="contactPhone" type="text" />
-            </div>
-
-            <div>
-              <label for="contactJobTitle">Job Title</label>
-              <input id="contactJobTitle" type="text" />
-            </div>
-
-            <div>
-              <label for="contactRole">Role</label>
-              <input id="contactRole" type="text" />
-            </div>
-
-            <div>
-              <label for="contactOwner">Owner</label>
-              <input id="contactOwner" type="text" />
             </div>
 
             <div>
@@ -242,16 +224,7 @@
 
             <div>
               <label for="source">Source</label>
-              <input id="source" type="text" />
-            </div>
-
-            <div>
-              <label for="status">Status</label>
-              <select id="status">
-                <option value="Active">Active</option>
-                <option value="Inactive">Inactive</option>
-                <option value="Draft">Draft</option>
-              </select>
+              <input id="source" type="text" placeholder="frontend" />
             </div>
 
             <div class="grid-full col-span-full">
@@ -263,7 +236,7 @@
           <div class="actions">
             <button id="deleteBtn" type="button" class="remove-btn hidden">Delete</button>
             <button id="cancelBtn" type="button">Cancel</button>
-            <button id="saveBtn" type="submit" class="submit-btn">Save Contact</button>
+            <button id="saveBtn" type="submit" class="submit-btn">Start Lead Workflow</button>
           </div>
         </form>
 
@@ -304,18 +277,24 @@
       const editRowId = document.getElementById("editRowId");
       const linkedOrders = document.getElementById("contactWorkOrders");
 
-      const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE || window.APP_CONFIG.API_BASE;
-      const API_ROOT = window.APP_CONFIG.API_BASE || POSTGRES_ROOT;
+      const WORKFLOW_ROOT = window.APP_CONFIG.WORKFLOW_API_BASE;
+      const POSTGRES_ROOT = window.APP_CONFIG.POSTGRES_API_BASE;
       const REQUEST_TIMEOUT_MS = 8000;
       const PAGE_SIZE = 500;
 
+      if (!WORKFLOW_ROOT) {
+        alert("WORKFLOW_API_BASE is missing from config.js");
+      }
+
+      if (!POSTGRES_ROOT) {
+        alert("POSTGRES_API_BASE is missing from config.js");
+      }
+
       const CONTACT_READ_ENDPOINTS = [
-        `${API_ROOT}/api_contacts`,
-        `${POSTGRES_ROOT}/contacts?limit=${PAGE_SIZE}`,
-        `${API_ROOT}/contacts?limit=${PAGE_SIZE}`
+        `${POSTGRES_ROOT}/api_contacts`,
+        `${POSTGRES_ROOT}/contacts?limit=${PAGE_SIZE}`
       ];
 
-      const API_BASE = `${POSTGRES_ROOT}/contacts`;
       const WORK_ORDERS_URL = `${POSTGRES_ROOT}/work_orders?limit=5000`;
       const WORK_ITEMS_URL = `${POSTGRES_ROOT}/work_items?limit=10000`;
 
@@ -328,6 +307,7 @@
 
       const FIELD_MAP = {
         id:["ContactId","contact_id","contactId","Id","ID","id"],
+        workflowInstanceId:["workflow_instance_id","WorkflowInstanceId","workflowInstanceId"],
         accountId:["AccountId","account_id","accountId"],
         firstName:["ContactName","contact_name","contactName","FirstName","first_name","Name","name"],
         surname:["ContactSurname","contact_surname","contactSurname","Surname","surname","LastName","last_name"],
@@ -338,14 +318,14 @@
         jobTitle:["ContactJobTitle","contact_job_title","contactJobTitle","JobTitle","job_title"],
         owner:["ContactOwner","contact_owner","contactOwner","Owner","owner"],
         role:["ContactRole","contact_role","contactRole","Role","role"],
-        requestDetail:["ContactRequestDetail","contact_request_detail","contactRequestDetail","RequestDetail","Notes","Comment","Description"],
+        requestDetail:["ContactRequestDetail","contact_request_detail","contactRequestDetail","RequestDetail","request_detail","Notes","Comment","Description"],
         statusId:["ContactStatusId","contact_status_id","contactStatusId","StatusId","status_id","Status","status"],
         location:["Location","location","City","city"],
         serviceCategory:["ServiceCategory","service_category","serviceCategory"],
         source:["Source","source"],
         submitPage:["SubmitPage","submit_page","submitPage"],
         searchTerm:["SearchTerm","search_term","searchTerm"],
-        created:["CreateDateTime","created_at","CreatedDate","CreatedOn","created"],
+        created:["CreateDateTime","create_date","created_at","CreatedDate","CreatedOn","created"],
         updated:["ModifiedDateTime","updated_at","UpdateDateTime","ModifiedDate","UpdatedOn","updated"]
       };
 
@@ -405,13 +385,24 @@
             headers:{ "Accept":"application/json" }
           });
           const text = await res.text();
+
           let result;
-          try { result = text ? JSON.parse(text) : {}; }
-          catch (_) { throw new Error(`${url}: endpoint returned non-JSON response`); }
-          if (!res.ok || result.ok === false) throw new Error(`${url}: ${result.error || res.status + " " + res.statusText}`);
+          try {
+            result = text ? JSON.parse(text) : {};
+          } catch (_) {
+            throw new Error(`${url}: endpoint returned non-JSON response`);
+          }
+
+          if (!res.ok || result.ok === false) {
+            throw new Error(`${url}: ${result.error || res.status + " " + res.statusText}`);
+          }
+
           return result;
         } catch (err) {
-          if (err.name === "AbortError") throw new Error(`${url}: request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+          if (err.name === "AbortError") {
+            throw new Error(`${url}: request timed out after ${REQUEST_TIMEOUT_MS / 1000}s`);
+          }
+
           throw err;
         } finally {
           clearTimeout(timer);
@@ -433,6 +424,7 @@
         return {
           raw:row,
           id:getFirst(row, FIELD_MAP.id),
+          workflowInstanceId:getFirst(row, FIELD_MAP.workflowInstanceId),
           accountId:getFirst(row, FIELD_MAP.accountId),
           firstName,
           surname,
@@ -466,11 +458,14 @@
 
       function normalizeStatus(value){
         const str = String(value || "").trim().toLowerCase();
+
         if (!str) return "Unknown";
+        if (["engagement","commercialization","reactivation","converted","dead","kyc","flagged","approved","barred","onboarded"].includes(str)) return str;
         if (["1","active","enabled","open","true","yes"].includes(str)) return "Active";
         if (["0","inactive","disabled","closed","false","no"].includes(str)) return "Inactive";
         if (str.includes("draft") || str === "2" || str === "pending") return "Draft";
-        return "Unknown";
+
+        return str;
       }
 
       function applyFiltersAndRender(){
@@ -481,6 +476,7 @@
         filteredRows = rawRows.filter(row => {
           const haystack = [
             row.id,
+            row.workflowInstanceId,
             row.accountId,
             row.name,
             row.firstName,
@@ -504,7 +500,7 @@
             ? true
             : status === "unknown"
             ? !row.status || row.status === "Unknown"
-            : row.status.toLowerCase() === status;
+            : String(row.status).toLowerCase() === status;
 
           return matchesSearch && matchesStatus;
         });
@@ -526,7 +522,7 @@
 
       function renderStats(rows){
         statTotal.textContent = rows.length;
-        statActive.textContent = rows.filter(r => r.status === "Active").length;
+        statActive.textContent = rows.filter(r => ["engagement","active","commercialization"].includes(String(r.status).toLowerCase())).length;
 
         const now = new Date();
         statNewMonth.textContent = rows.filter(r => {
@@ -538,7 +534,7 @@
       function renderTable(rows){
         if (!rows.length) {
           table.innerHTML = `
-            <thead><tr><th>Contact</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Role / Title</th><th>Location</th><th>Created</th><th>Updated</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Contact</th><th>Company</th><th>Email</th><th>Phone</th><th>Status</th><th>Workflow</th><th>Location</th><th>Created</th><th>Updated</th><th>Actions</th></tr></thead>
             <tbody><tr><td colspan="10"><div class="empty-state">No contacts match the current filters.</div></td></tr></tbody>`;
           return;
         }
@@ -551,7 +547,7 @@
               <th>Email</th>
               <th>Phone</th>
               <th>Status</th>
-              <th>Role / Title</th>
+              <th>Workflow</th>
               <th>Location</th>
               <th>Created</th>
               <th>Updated</th>
@@ -563,32 +559,28 @@
               <tr>
                 <td>
                   <div class="contact-name">${escapeHtml(row.name || "Unnamed Contact")}</div>
-                  <span class="contact-sub">ID: ${escapeHtml(row.id || "-")}</span>
+                  <span class="contact-sub">Contact ID: ${escapeHtml(row.id || "-")}</span>
                 </td>
                 <td>${escapeHtml(row.company || "-")}</td>
                 <td>${escapeHtml(row.email || "-")}</td>
                 <td>${escapeHtml(row.phone || "-")}</td>
                 <td>${renderStatusBadge(row.status)}</td>
-                <td>${escapeHtml([row.role, row.jobTitle].filter(Boolean).join(" • ") || "-")}</td>
+                <td>
+                  ${row.workflowInstanceId
+                    ? `<span class="contact-sub">${escapeHtml(row.workflowInstanceId)}</span>`
+                    : `<span class="contact-sub">Not linked</span>`}
+                </td>
                 <td>${escapeHtml(row.location || "-")}</td>
                 <td>${formatDate(row.created)}</td>
                 <td>${formatDate(row.updated)}</td>
                 <td>
                   <div class="row-actions">
-                    <button type="button" data-action="edit" data-id="${escapeHtml(String(row.id))}">Edit</button>
                     <button type="button" data-action="view" data-id="${escapeHtml(String(row.id))}">View</button>
                   </div>
                 </td>
               </tr>
             `).join("")}
           </tbody>`;
-
-        table.querySelectorAll("[data-action='edit']").forEach(btn => {
-          btn.addEventListener("click", () => {
-            const row = rows.find(r => String(r.id) === btn.dataset.id);
-            if (row) openModal("edit", row);
-          });
-        });
 
         table.querySelectorAll("[data-action='view']").forEach(btn => {
           btn.addEventListener("click", () => {
@@ -603,31 +595,27 @@
         editRowId.value = row?.id || "";
 
         const isView = mode === "view";
-        const isEdit = mode === "edit";
 
-        modalTitle.textContent = mode === "create" ? "New Contact" : mode === "edit" ? "Edit Contact" : "View Contact";
-        modalSubtitle.textContent = mode === "create" ? "Create a new contact record" : mode === "edit" ? "Update contact details" : "View contact information";
+        modalTitle.textContent = mode === "create" ? "New Lead" : "View Contact";
+        modalSubtitle.textContent = mode === "create"
+          ? "Create a workflow-owned lead"
+          : "View contact information. Direct editing is disabled.";
 
         document.getElementById("contactName").value = row?.firstName || "";
         document.getElementById("contactSurname").value = row?.surname || "";
         document.getElementById("contactCompany").value = row?.company || "";
-        document.getElementById("contactIndustry").value = row?.industry || "";
         document.getElementById("contactEmail").value = row?.email || "";
         document.getElementById("contactPhone").value = row?.phone || "";
-        document.getElementById("contactJobTitle").value = row?.jobTitle || "";
-        document.getElementById("contactRole").value = row?.role || "";
-        document.getElementById("contactOwner").value = row?.owner || "";
         document.getElementById("location").value = row?.location || "";
         document.getElementById("serviceCategory").value = row?.serviceCategory || "";
         document.getElementById("source").value = row?.source || "";
         document.getElementById("requestDetail").value = row?.requestDetail || "";
-        document.getElementById("status").value = row?.status && ["Active","Inactive","Draft"].includes(row.status) ? row.status : "Active";
 
         Array.from(contactForm.querySelectorAll("input, select")).forEach(el => {
           if (el.type !== "hidden") el.disabled = isView;
         });
 
-        deleteBtn.classList.toggle("hidden", !isEdit);
+        deleteBtn.classList.add("hidden");
         document.getElementById("saveBtn").classList.toggle("hidden", isView);
 
         loadContactWorkOrders(mode === "create" ? null : row?.id);
@@ -641,6 +629,11 @@
         editRowId.value = "";
         deleteBtn.classList.add("hidden");
         document.getElementById("saveBtn").classList.remove("hidden");
+
+        Array.from(contactForm.querySelectorAll("input, select")).forEach(el => {
+          if (el.type !== "hidden") el.disabled = false;
+        });
+
         linkedOrders.innerHTML = "";
       }
 
@@ -648,38 +641,46 @@
         e.preventDefault();
 
         const mode = formMode.value;
-        const rowId = editRowId.value;
+
+        if (mode !== "create") {
+          alert("Direct contact editing is disabled. Use workflow actions instead.");
+          return;
+        }
+
         const payload = {
-          ContactName:document.getElementById("contactName").value.trim(),
-          ContactSurname:document.getElementById("contactSurname").value.trim(),
-          ContactCompany:document.getElementById("contactCompany").value.trim(),
-          ContactIndustry:document.getElementById("contactIndustry").value.trim(),
-          ContactEmail:document.getElementById("contactEmail").value.trim(),
-          ContactPhone:document.getElementById("contactPhone").value.trim(),
-          ContactJobTitle:document.getElementById("contactJobTitle").value.trim(),
-          ContactRole:document.getElementById("contactRole").value.trim(),
-          ContactOwner:document.getElementById("contactOwner").value.trim(),
-          Location:document.getElementById("location").value.trim(),
-          ServiceCategory:document.getElementById("serviceCategory").value.trim(),
-          Source:document.getElementById("source").value.trim(),
-          ContactRequestDetail:document.getElementById("requestDetail").value.trim(),
-          ContactStatusId:document.getElementById("status").value
+          name: document.getElementById("contactName").value.trim(),
+          surname: document.getElementById("contactSurname").value.trim(),
+          company: document.getElementById("contactCompany").value.trim(),
+          email: document.getElementById("contactEmail").value.trim(),
+          phone: document.getElementById("contactPhone").value.trim(),
+          location: document.getElementById("location").value.trim(),
+          service_category: document.getElementById("serviceCategory").value.trim(),
+          source: document.getElementById("source").value.trim() || "frontend",
+          request_detail: document.getElementById("requestDetail").value.trim(),
+          submit_page: "contacts_page"
         };
 
         try {
-          const url = mode === "edit" ? `${API_BASE}/${encodeURIComponent(rowId)}` : API_BASE;
-          const method = mode === "edit" ? "PUT" : "POST";
-          const res = await fetch(url, {
-            method,
-            headers:{ "Content-Type":"application/json", "Accept":"application/json" },
-            body:JSON.stringify(payload)
+          const res = await fetch(`${WORKFLOW_ROOT}/workflow/start`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json"
+            },
+            body: JSON.stringify(payload)
           });
+
           const result = await res.json().catch(() => ({}));
-          if (!res.ok || result.ok === false) throw new Error(result.error || `Failed to ${mode === "edit" ? "update" : "create"} contact`);
+
+          if (!res.ok || result.ok === false) {
+            throw new Error(result.detail || result.error || "Workflow request failed");
+          }
+
           closeModal();
           resetLinkedWorkCache();
           await loadData(true);
-          alert(mode === "edit" ? "Contact updated successfully." : "Contact created successfully.");
+
+          alert(`Lead workflow started. Workflow ID: ${result.workflowInstanceId}`);
         } catch (err) {
           console.error(err);
           alert(err.message);
@@ -687,22 +688,7 @@
       }
 
       async function handleDelete(){
-        const rowId = editRowId.value;
-        if (!rowId) return;
-        if (!confirm("Delete this contact?")) return;
-
-        try {
-          const res = await fetch(`${API_BASE}/${encodeURIComponent(rowId)}`, { method:"DELETE", headers:{ "Accept":"application/json" } });
-          const result = await res.json().catch(() => ({}));
-          if (!res.ok || result.ok === false) throw new Error(result.error || "Failed to delete contact");
-          closeModal();
-          resetLinkedWorkCache();
-          await loadData(true);
-          alert("Contact deleted successfully.");
-        } catch (err) {
-          console.error(err);
-          alert(err.message);
-        }
+        alert("Direct delete is disabled. Use a workflow action such as mark_dead.");
       }
 
       async function loadContactWorkOrders(recordId){
@@ -754,28 +740,35 @@
 
       function groupOrdersByContact(orders){
         const map = new Map();
+
         orders.forEach(order => {
           const contactId = String(getVal(order, ["ContactId","contact_id","contactId"], ""));
           if (!contactId) return;
+
           if (!map.has(contactId)) map.set(contactId, []);
           map.get(contactId).push(order);
         });
+
         return map;
       }
 
       function groupItemsByOrder(items){
         const map = new Map();
+
         items.forEach(item => {
           const orderId = String(getLinkedItemOrderId(item));
           if (!orderId) return;
+
           if (!map.has(orderId)) map.set(orderId, []);
           map.get(orderId).push(item);
         });
+
         return map;
       }
 
       function renderLinkedWorkOrders(orders){
         let html = '<h3>Work Orders</h3>';
+
         orders.forEach(order => {
           const orderId = getLinkedOrderId(order) || "-";
           const items = workItemsByOrder.get(String(orderId)) || [];
@@ -812,6 +805,7 @@
             </div>
           </details>`;
         });
+
         return html;
       }
 
@@ -825,6 +819,7 @@
         const gross = storedGross !== "" ? num(storedGross) : lineTotal - cost;
         const storedMargin = getVal(item, ["GrossMarginPct","gross_margin_pct"], "");
         const margin = storedMargin !== "" ? num(storedMargin) : (lineTotal ? (gross / lineTotal) * 100 : 0);
+
         return { qty, unit, lineTotal, cost, gross, margin };
       }
 
@@ -832,28 +827,35 @@
         for (const key of explicitKeys) {
           if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
         }
+
         const dynamicKey = Object.keys(obj).find(key => {
           const normal = key.toLowerCase().replace(/[^a-z0-9]/g, "");
           return normal === "workorderid" || normal === "workordersid";
         });
+
         return dynamicKey ? obj[dynamicKey] : "";
       }
 
-      function getLinkedOrderId(order){ return getLinkedObjectId(order, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId","Id","ID","id"]); }
-      function getLinkedItemOrderId(item){ return getLinkedObjectId(item, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId"]); }
+      function getLinkedOrderId(order){
+        return getLinkedObjectId(order, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId","Id","ID","id"]);
+      }
+
+      function getLinkedItemOrderId(item){
+        return getLinkedObjectId(item, ["work_order_id","WorkOrderId","WorkOrderID","workOrderId"]);
+      }
 
       function exportCsv(){
-        const headers = ["ID","First Name","Surname","Company","Email","Phone","Status","Role","Job Title","Location","Account ID","Created","Updated"];
+        const headers = ["ID","Workflow ID","First Name","Surname","Company","Email","Phone","Status","Location","Account ID","Created","Updated"];
+
         const lines = [headers.join(",")].concat(filteredRows.map(row => [
           csvValue(row.id),
+          csvValue(row.workflowInstanceId),
           csvValue(row.firstName),
           csvValue(row.surname),
           csvValue(row.company),
           csvValue(row.email),
           csvValue(row.phone),
           csvValue(row.status),
-          csvValue(row.role),
-          csvValue(row.jobTitle),
           csvValue(row.location),
           csvValue(row.accountId),
           csvValue(row.created),
@@ -863,11 +865,13 @@
         const blob = new Blob([lines.join("\n")], { type:"text/csv;charset=utf-8;" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
+
         a.href = url;
         a.download = "contacts.csv";
         document.body.appendChild(a);
         a.click();
         a.remove();
+
         URL.revokeObjectURL(url);
       }
 
@@ -881,10 +885,13 @@
       function renderStatusBadge(status){
         const value = String(status || "Unknown");
         const key = value.toLowerCase();
+
         let cls = "status-info";
-        if (["active","open","enabled"].includes(key)) cls = "status-active";
-        if (["inactive","closed","disabled"].includes(key)) cls = "status-inactive";
-        if (["draft","pending"].includes(key)) cls = "status-draft";
+
+        if (["active","open","enabled","engagement","commercialization","converted","onboarded"].includes(key)) cls = "status-active";
+        if (["inactive","closed","disabled","dead","barred"].includes(key)) cls = "status-inactive";
+        if (["draft","pending","reactivation","kyc","flagged"].includes(key)) cls = "status-draft";
+
         return `<span class="status-badge ${cls}">${escapeHtml(value)}</span>`;
       }
 
@@ -892,18 +899,59 @@
         for (const key of keys) {
           if (obj[key] !== undefined && obj[key] !== null && obj[key] !== "") return obj[key];
         }
+
         return fallback;
       }
 
-      function compareText(a, b){ return String(a || "").localeCompare(String(b || "")); }
-      function compareDate(a, b){ return parseDateSafe(a) - parseDateSafe(b); }
-      function parseDateSafe(value){ const d = new Date(value); return isNaN(d.getTime()) ? 0 : d.getTime(); }
-      function num(value){ const n = Number(value); return Number.isFinite(n) ? n : 0; }
-      function numberOrFallback(value, fallback){ return value === "" || value === null || value === undefined ? fallback : num(value); }
-      function formatNumber(value){ const n = Number(value); return Number.isFinite(n) ? n.toLocaleString("en-ZA", { minimumFractionDigits:2, maximumFractionDigits:2 }) : "-"; }
-      function formatDate(value){ if (!value) return "-"; const d = new Date(value); return isNaN(d.getTime()) ? escapeHtml(String(value)) : escapeHtml(d.toLocaleDateString("en-ZA", { day:"2-digit", month:"short", year:"numeric" })); }
-      function csvValue(value){ return `"${String(value ?? "").replaceAll('"', '""')}"`; }
-      function escapeHtml(str){ return String(str ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
+      function compareText(a, b){
+        return String(a || "").localeCompare(String(b || ""));
+      }
+
+      function compareDate(a, b){
+        return parseDateSafe(a) - parseDateSafe(b);
+      }
+
+      function parseDateSafe(value){
+        const d = new Date(value);
+        return isNaN(d.getTime()) ? 0 : d.getTime();
+      }
+
+      function num(value){
+        const n = Number(value);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function numberOrFallback(value, fallback){
+        return value === "" || value === null || value === undefined ? fallback : num(value);
+      }
+
+      function formatNumber(value){
+        const n = Number(value);
+        return Number.isFinite(n) ? n.toLocaleString("en-ZA", { minimumFractionDigits:2, maximumFractionDigits:2 }) : "-";
+      }
+
+      function formatDate(value){
+        if (!value) return "-";
+
+        const d = new Date(value);
+
+        return isNaN(d.getTime())
+          ? escapeHtml(String(value))
+          : escapeHtml(d.toLocaleDateString("en-ZA", { day:"2-digit", month:"short", year:"numeric" }));
+      }
+
+      function csvValue(value){
+        return `"${String(value ?? "").replaceAll('"', '""')}"`;
+      }
+
+      function escapeHtml(str){
+        return String(str ?? "")
+          .replaceAll("&","&amp;")
+          .replaceAll("<","&lt;")
+          .replaceAll(">","&gt;")
+          .replaceAll('"',"&quot;")
+          .replaceAll("'","&#039;");
+      }
 
       function setLoading(message){
         loadState.hidden = false;

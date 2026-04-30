@@ -7,15 +7,21 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const dbUrl =
-  process.env.DATABASE_URL ||
-  process.env.PGRST_DB_URI;
+const dbUrl = process.env.DATABASE_URL || process.env.PGRST_DB_URI;
+
+if (!dbUrl) {
+  throw new Error("DATABASE_URL or PGRST_DB_URI is required");
+}
 
 const db = new Pool({
   connectionString: dbUrl,
-  ssl: dbUrl?.includes("sslmode=require")
-    ? { rejectUnauthorized: false }
-    : false
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+db.on("error", (err) => {
+  console.error("Postgres pool error:", err.message);
 });
 
 app.get("/health", (req, res) => {
@@ -47,9 +53,11 @@ function validateLead(payload) {
 }
 
 app.post("/workflow/start", async (req, res) => {
-  const client = await db.connect();
+  let client;
 
   try {
+    client = await db.connect();
+
     const originalPayload = req.body;
     const lead = normalizeLeadPayload(originalPayload);
     const missing = validateLead(lead);
@@ -88,11 +96,11 @@ app.post("/workflow/start", async (req, res) => {
         "inbound_leads",
         "engagement",
         "active",
-        originalPayload,
-        {
+        JSON.stringify(originalPayload),
+        JSON.stringify({
           allowed_actions: ["mark_qualified", "mark_ghosted"],
           lead
-        }
+        })
       ]
     );
 
@@ -140,7 +148,7 @@ app.post("/workflow/start", async (req, res) => {
       SET related_contact_id = $1, updated_at = now()
       WHERE id = $2
       `,
-      [contactId, workflowInstanceId]
+      [String(contactId), workflowInstanceId]
     );
 
     await client.query(
@@ -163,7 +171,7 @@ app.post("/workflow/start", async (req, res) => {
         "workflow_started",
         null,
         "engagement",
-        originalPayload,
+        JSON.stringify(originalPayload),
         "system"
       ]
     );
@@ -179,16 +187,23 @@ app.post("/workflow/start", async (req, res) => {
       allowedActions: ["mark_qualified", "mark_ghosted"]
     });
   } catch (err) {
-    await client.query("ROLLBACK");
+    if (client) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackErr) {
+        console.error("Rollback failed:", rollbackErr.message);
+      }
+    }
 
     console.error("Failed to start workflow:", err.message);
 
     res.status(500).json({
       ok: false,
-      error: "Failed to start workflow"
+      error: "Failed to start workflow",
+      detail: err.message
     });
   } finally {
-    client.release();
+    if (client) client.release();
   }
 });
 
@@ -224,7 +239,8 @@ app.get("/workflow/:id", async (req, res) => {
 
     res.status(500).json({
       ok: false,
-      error: "Failed to read workflow"
+      error: "Failed to read workflow",
+      detail: err.message
     });
   }
 });

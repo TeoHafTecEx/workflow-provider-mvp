@@ -8,10 +8,8 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 const db = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("railway")
-    ? { rejectUnauthorized: false }
-    : false
+  connectionString: process.env.DATABASE_URL || process.env.PGRST_DB_URI,
+  ssl: { rejectUnauthorized: false }
 });
 
 app.get("/health", (req, res) => {

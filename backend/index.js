@@ -7,9 +7,15 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+const dbUrl =
+  process.env.DATABASE_URL ||
+  process.env.PGRST_DB_URI;
+
 const db = new Pool({
-  connectionString: process.env.DATABASE_URL || process.env.PGRST_DB_URI,
-  ssl: { rejectUnauthorized: false }
+  connectionString: dbUrl,
+  ssl: dbUrl?.includes("sslmode=require")
+    ? { rejectUnauthorized: false }
+    : false
 });
 
 app.get("/health", (req, res) => {
